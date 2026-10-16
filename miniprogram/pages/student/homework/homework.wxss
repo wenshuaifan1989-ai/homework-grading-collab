@@ -1,0 +1,63 @@
+.heading {
+  margin-bottom: 24rpx;
+}
+
+.logout-link {
+  color: #75839a;
+  font-size: 24rpx;
+}
+
+.tabs {
+  display: flex;
+  margin: 8rpx 0 20rpx;
+  border-bottom: 2rpx solid #e3eaf4;
+}
+
+.tab {
+  flex: 1;
+  padding: 20rpx 0;
+  color: #7d8aa0;
+  text-align: center;
+}
+
+.tab-active {
+  border-bottom: 5rpx solid #1769ef;
+  color: #1769ef;
+  font-weight: 700;
+}
+
+.assignment-card {
+  position: relative;
+  padding-right: 44rpx;
+}
+
+.assignment-title {
+  max-width: 430rpx;
+  font-size: 30rpx;
+  font-weight: 650;
+}
+
+.assignment-meta {
+  margin-top: 16rpx;
+}
+
+.card-arrow {
+  position: absolute;
+  top: 50%;
+  right: 22rpx;
+  color: #9ca8b8;
+  font-size: 42rpx;
+  transform: translateY(-50%);
+}
+
+.student-switch { margin-bottom: 16rpx; }
+.mistake-entry { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18rpx; }
+.independent-entry { position: relative; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24rpx; padding-right: 52rpx; border: 2rpx solid #dbeafe; background: #f5f9ff; }
+.independent-history { margin-top: 30rpx; }
+.history-title { margin: 0 0 14rpx 8rpx; }
+.student-current { margin-top: 8rpx; color: #26364d; font-size: 29rpx; font-weight: 650; }
+.identity-link { color: #1769ef; font-size: 23rpx; }
+.student-options { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 18rpx; }
+.student-chip { padding: 12rpx 20rpx; border: 2rpx solid #e3eaf4; border-radius: 28rpx; color: #5d6a7f; font-size: 23rpx; }
+.student-chip-active { border-color: #1769ef; background: #f1f6ff; color: #1769ef; }
+.select-hint { margin-top: 14rpx; }

@@ -1,0 +1,9 @@
+.teacher-row { display: flex; align-items: center; justify-content: space-between; padding: 18rpx 0; border-bottom: 2rpx solid #eef1f5; }
+.teacher-name { margin-bottom: 8rpx; font-size: 27rpx; font-weight: 650; }
+.role-badge { margin-left: 8rpx; padding: 4rpx 10rpx; border-radius: 16rpx; background: #edf4ff; color: #1769ef; font-size: 20rpx; font-weight: 500; }
+.danger-link { color: #cc4e4e; font-size: 23rpx; }
+.secondary-button { margin-top: 16rpx; }
+.danger-button { margin-top: 14rpx; color: #bd4545; background: #fff; border: 2rpx solid #efd2d2; }
+.request-row { display: flex; align-items: center; justify-content: space-between; padding: 18rpx 0; border-top: 2rpx solid #eef1f5; font-size: 23rpx; }
+.request-action { margin-left: 18rpx; color: #1769ef; }
+.muted-action { color: #7b8799; }

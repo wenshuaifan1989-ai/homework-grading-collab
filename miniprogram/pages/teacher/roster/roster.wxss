@@ -1,0 +1,28 @@
+.create-link {
+  color: #1769ef;
+  font-size: 24rpx;
+}
+
+.batch-card {
+  padding: 26rpx;
+}
+
+.roster-card {
+  padding: 24rpx;
+}
+
+.roster-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.roster-bound {
+  margin-top: 16rpx;
+}
+
+.unbind-link {
+  margin-top: 18rpx;
+  color: #d64545;
+  font-size: 24rpx;
+}

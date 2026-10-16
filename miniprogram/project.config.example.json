@@ -1,0 +1,14 @@
+{
+  "appid": "",
+  "compileType": "miniprogram",
+  "libVersion": "3.0.0",
+  "projectname": "homework-grading",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "compileHotReLoad": true
+  },
+  "condition": {}
+}

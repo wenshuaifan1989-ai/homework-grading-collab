@@ -1,0 +1,48 @@
+.heading {
+  margin-bottom: 16rpx;
+}
+
+.logout-link {
+  color: #7e8ba1;
+  font-size: 24rpx;
+}
+
+.admin-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.family-homework-link { display: flex; align-items: center; min-height: 100rpx; }
+.family-homework-link .action-copy { flex: 1; }
+.family-homework-link .muted { margin-top: 8rpx; }
+
+.summary-number {
+  margin-bottom: 8rpx;
+  color: #1769ef;
+  font-size: 42rpx;
+  font-weight: 700;
+}
+
+.section-heading {
+  margin: 30rpx 0 16rpx;
+}
+
+.teacher-row,
+.class-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status-action {
+  font-size: 24rpx;
+}
+
+.status-action.active {
+  color: #d64545;
+}
+
+.status-action.inactive {
+  color: #12965d;
+}

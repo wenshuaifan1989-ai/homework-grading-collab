@@ -1,0 +1,26 @@
+<view class="page">
+  <view class="row">
+    <view class="page-title">学生名册</view>
+    <text class="create-link" bindtap="addOne">＋ 新增</text>
+  </view>
+  <view class="card batch-card">
+    <text class="field-label">批量新增</text>
+    <textarea class="textarea" maxlength="20000" value="{{batchLines}}" placeholder="一行一个姓名，或 姓名,学号"
+      bindinput="onBatchInput" />
+    <button class="secondary-button" bindtap="addBatch">批量加入名册</button>
+  </view>
+  <view wx:if="{{loading && !roster.length}}" class="empty">正在加载名册…</view>
+  <view wx:elif="{{!roster.length}}" class="empty">还没有学生，请先新增</view>
+  <view wx:for="{{roster}}" wx:key="id" class="card roster-card">
+    <view class="roster-main">
+      <view>
+        <view class="section-title">{{item.student_name}}</view>
+        <view wx:if="{{item.student_no}}" class="muted">学号：{{item.student_no}}</view>
+      </view>
+      <text class="pill {{item.bound ? 'pill-success' : 'pill-muted'}}">{{item.bound ? "已绑定" : "未绑定"}}</text>
+    </view>
+    <view wx:if="{{item.bound}}" class="roster-bound muted">账号：{{item.bound_user_name}}</view>
+    <view wx:if="{{item.bound && isOwner}}" class="unbind-link" data-id="{{item.id}}" bindtap="unbind">解除错误账号绑定</view>
+    <view wx:if="{{isOwner && item.student_id}}" class="unbind-link remove-student" data-student-id="{{item.student_id}}" bindtap="removeStudent">从本班移除学生</view>
+  </view>
+</view>

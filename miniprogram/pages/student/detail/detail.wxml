@@ -1,0 +1,53 @@
+<view class="page" wx:if="{{assignment}}">
+  <view class="card">
+    <view class="row">
+      <text class="detail-title">{{assignment.title}}</text>
+      <text class="pill">{{assignment.class_name}}</text>
+    </view>
+    <view class="muted detail-due">截止时间：{{assignment.dueLabel}}</view>
+    <view class="detail-description">{{assignment.description || '请按要求完成作业，拍清楚每一页。'}}</view>
+    <button wx:if="{{assignment.assignment_mode === 'uniform_mixed'}}" class="secondary-button" bindtap="openOriginal">查看同一原卷</button>
+  </view>
+
+  <view wx:if="{{assignment.variant_mode}}" class="card">
+    <view class="section-title">本次练习内容</view>
+    <view wx:if="{{!assignment.variant_available}}" class="muted detail-due">
+      {{assignment.variant_message || '老师尚未为当前学生准备好这项作业，请联系老师。'}}
+    </view>
+    <view wx:else>
+      <view wx:for="{{assignment.variant_questions}}" wx:key="id" class="variant-question">
+        <view>{{item.number}}. {{item.requirement_label ? item.requirement_label + ' · ' : ''}}{{item.question_text}}</view>
+        <view wx:for="{{item.options}}" wx:for-item="option" wx:key="*this" class="muted">{{option}}</view>
+        <view class="muted">本题 {{item.max_score}} 分</view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{assignment.submitted}}" class="card">
+    <view class="row">
+      <text class="section-title">提交状态</text>
+      <text class="pill {{assignment.task_status === 'SUCCESS' ? 'pill-success' : 'pill-muted'}}">
+        {{assignment.taskStatusLabel}}
+      </text>
+    </view>
+    <view class="muted detail-due">任务编号：{{assignment.task_id}}</view>
+    <button wx:if="{{assignment.task_status === 'SUCCESS' || assignment.task_status === 'FAILED'}}"
+      class="secondary-button" bindtap="openResult">查看批改结果</button>
+    <button wx:if="{{assignment.task_status !== 'SUCCESS' && assignment.task_status !== 'FAILED'}}"
+      class="secondary-button" bindtap="openResult">查看批改进度</button>
+  </view>
+
+  <view class="card hint-card">
+    <view class="section-title">提交说明</view>
+    <view class="muted hint-line">连续拍照或从相册选择，最多 9 张</view>
+    <view class="muted hint-line">图片会先保存在本地，确认后一次提交整份作业</view>
+    <view class="muted hint-line">请确保文字清晰、页面完整</view>
+  </view>
+
+  <button wx:if="{{!assignment.submitted && (!assignment.variant_mode || assignment.variant_available)}}" class="primary-button" bindtap="openSubmit">
+    拍照 / 选择图片
+  </button>
+  <button wx:if="{{assignment.submitted && assignment.task_status === 'UNKNOWN_LAYOUT'}}" class="primary-button" bindtap="openSubmit">核对试卷后重新拍照提交</button>
+  <view wx:if="{{!assignment.submitted && assignment.variant_mode && !assignment.variant_available}}" class="muted detail-due">当前作业版本未就绪，暂不能提交。</view>
+</view>
+<view wx:elif="{{loading}}" class="empty">正在加载作业…</view>

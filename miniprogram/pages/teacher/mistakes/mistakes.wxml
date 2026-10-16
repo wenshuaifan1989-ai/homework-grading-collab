@@ -1,0 +1,76 @@
+<view class="page">
+  <view class="page-title">纸质题校对与班级错题</view>
+  <view class="muted page-intro">只处理授权班级中已批改成功的作业。切题结果先作为候选，教师确认题号、题面和来源后才进入 QuestionAsset / 错题集。</view>
+  <view wx:if="{{errorMessage}}" class="card error-card">{{errorMessage}}</view>
+  <view wx:if="{{notice}}" class="card notice-card">{{notice}}</view>
+  <view class="card controls">
+    <text class="field-label">班级</text>
+    <picker range="{{classes}}" range-key="name" value="{{classIndex}}" bindchange="onClassChange"><view class="picker-value">{{classes.length ? classes[classIndex].name : '没有可管理班级'}}</view></picker>
+    <text class="field-label">作业</text>
+    <picker range="{{assignments}}" range-key="displayTitle" value="{{assignmentIndex}}" bindchange="onAssignmentChange"><view class="picker-value">{{assignments.length ? assignments[assignmentIndex].displayTitle : '当前班级暂无作业'}}</view></picker>
+    <text class="field-label">已批改提交</text>
+    <picker range="{{eligibleSubmissions}}" range-key="displayLabel" value="{{submissionIndex}}" bindchange="onSubmissionChange"><view class="picker-value">{{eligibleSubmissions.length ? eligibleSubmissions[submissionIndex].displayLabel : '暂无成功批改的提交'}}</view></picker>
+    <view class="muted accuracy-label">切题/识别准确率：{{accuracyStatus}}（需要教师逐题确认）</view>
+    <button class="primary-button" disabled="{{!taskId || busy}}" bindtap="runDigitize">{{busy ? '处理中…' : '生成或重用切题候选'}}</button>
+  </view>
+
+  <view wx:if="{{taskId}}" class="card">
+    <view class="section-title">单题候选（{{sources.length}}）</view>
+    <view wx:if="{{loading && !sources.length}}" class="empty">正在读取候选…</view>
+    <view wx:elif="{{!sources.length}}" class="empty">尚无候选；点击上方按钮处理。原作业图不会被覆盖。</view>
+    <view wx:for="{{sources}}" wx:key="source_id" class="source-row {{selectedSourceId === item.source_id ? 'source-active' : ''}}" data-id="{{item.source_id}}" bindtap="selectSource">
+      <view class="row"><text class="source-title">{{item.question_no || ('候选 ' + item.source_id)}}</text><text class="pill">{{item.review_status}}</text></view>
+      <view class="muted">第 {{item.page_index + 1}} 页 · {{item.provider}} · 框 {{item.bbox.x1}},{{item.bbox.y1}}–{{item.bbox.x2}},{{item.bbox.y2}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{selectedSource}}" class="card review-card">
+    <view class="section-title">校对并确认</view>
+    <image wx:if="{{cropPath}}" class="crop-preview" src="{{cropPath}}" mode="widthFix" bindtap="previewSource" data-kind="crop" />
+    <view class="source-actions">
+      <button class="secondary-button compact" bindtap="previewSource" data-kind="crop">预览裁切图</button>
+      <button class="secondary-button compact" bindtap="previewSource" data-kind="original">预览原始作业页</button>
+    </view>
+    <text class="field-label">关联当前页批改题</text>
+    <picker range="{{gradingOptions}}" range-key="displayLabel" value="{{gradingIndex}}" bindchange="onGradingChange"><view class="picker-value">{{gradingOptions.length ? gradingOptions[gradingIndex].displayLabel : '本页暂无批改结果'}}</view></picker>
+    <text class="field-label">题号</text><input class="input" value="{{questionNo}}" data-key="questionNo" bindinput="onFieldInput" placeholder="例如第1题" />
+    <text class="field-label">题型</text><input class="input" value="{{questionType}}" data-key="questionType" bindinput="onFieldInput" placeholder="可留空" />
+    <text class="field-label">题面（教师校对）</text><textarea class="textarea" value="{{questionText}}" data-key="questionText" bindinput="onFieldInput" placeholder="依据裁切图校对，不补造无法确认的信息" />
+    <view class="bbox-grid">
+      <label>x1<input class="input" type="number" value="{{bbox.x1}}" data-key="x1" bindinput="onBoxInput" /></label>
+      <label>y1<input class="input" type="number" value="{{bbox.y1}}" data-key="y1" bindinput="onBoxInput" /></label>
+      <label>x2<input class="input" type="number" value="{{bbox.x2}}" data-key="x2" bindinput="onBoxInput" /></label>
+      <label>y2<input class="input" type="number" value="{{bbox.y2}}" data-key="y2" bindinput="onBoxInput" /></label>
+    </view>
+    <text class="field-label">可信答案（可留空）</text><textarea class="textarea short" value="{{correctAnswer}}" data-key="correctAnswer" bindinput="onFieldInput" />
+    <text class="field-label">解析（可留空）</text><textarea class="textarea short" value="{{analysis}}" data-key="analysis" bindinput="onFieldInput" />
+    <text class="field-label">错题判定</text>
+    <picker range="{{manualWrongOptions}}" value="{{manualWrong === 'auto' ? 0 : (manualWrong === 'yes' ? 1 : 2)}}" bindchange="onWrongChange"><view class="picker-value">{{manualWrongLabel}}</view></picker>
+    <button class="primary-button" disabled="{{busy || !gradingResultId}}" bindtap="saveReview">确认题目与来源</button>
+  </view>
+
+  <view class="card">
+    <view class="section-title">授权班级错题与订正</view>
+    <view wx:if="{{!mistakes.length}}" class="empty">当前班级暂无已确认错题。</view>
+    <view wx:for="{{mistakes}}" wx:key="id" class="mistake-row">
+      <view class="row"><text class="source-title">{{item.student_name}} · {{item.question_no || '待标题号'}}</text><text class="pill">{{item.status}}</text></view>
+      <view class="mistake-question">{{item.question.question_text || '题面待校对'}}</view>
+      <view wx:if="{{item.question.knowledge_points_label}}" class="muted">知识点：{{item.question.knowledge_points_label}}</view>
+      <view class="muted">{{item.assignment_title}} · {{item.subject}}</view>
+      <button class="text-button" data-id="{{item.id}}" bindtap="openMistakeSource">打开对应题源进行校对</button>
+      <button class="text-button" data-id="{{item.id}}" bindtap="toggleHistory">{{item.expanded ? '收起订正记录' : '查看订正记录'}}</button>
+      <view wx:if="{{item.expanded}}" class="history-box">
+        <view wx:if="{{!item.attempts.length}}" class="muted">暂无订正记录</view>
+        <view wx:for="{{item.attempts}}" wx:for-item="attempt" wx:key="id" class="attempt-row">
+          <view>{{attempt.attempt_type === 'mark_mastered' ? '自评掌握' : '学生订正'}} · {{attempt.status}}</view>
+          <view wx:if="{{attempt.submitted_answer}}" class="muted">答案：{{attempt.submitted_answer}}</view>
+          <view wx:if="{{attempt.review_feedback}}" class="muted">反馈：{{attempt.review_feedback}}</view>
+          <view wx:if="{{attempt.attempt_type === 'correction' && attempt.status === 'submitted'}}">
+            <textarea class="textarea feedback-input" data-id="{{item.id}}" bindinput="onFeedbackInput" placeholder="给学生的反馈（可选）" />
+            <view class="source-actions"><button class="secondary-button compact" data-mistake="{{item.id}}" data-attempt="{{attempt.id}}" data-accepted="true" bindtap="reviewStudentCorrection">通过</button><button class="secondary-button compact" data-mistake="{{item.id}}" data-attempt="{{attempt.id}}" data-accepted="false" bindtap="reviewStudentCorrection">退回重做</button></view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,23 @@
+# Codex 项目规则
+
+## 目标和边界
+
+- 本仓库是双人协同开发用的源码基线；GitHub 私有仓库是跨电脑共享源码与评审的唯一位置。
+- 不在提交中包含密钥、账号、真实学员资料、作业图片、数据库备份、运行日志、证据或本机配置。
+- 不连接生产数据库、不调用收费服务、不部署或发布，除非任务明确授权并另行通过门禁。
+- 原参考项目历史不属于本仓库历史；本仓库使用从 `develop` 开始的新 Git 历史。
+
+## 开发流程
+
+- 每项工作从最新 `develop` 建立短期分支：`feature/<任务编号>-<简短名称>` 或 `fix/<任务编号>-<简短名称>`。
+- 开始前检查 `git status`，提交前检查差异、执行适用测试并运行 `python scripts/check_collab_safety.py`。
+- 通过 Pull Request 评审后合并到 `develop`。禁止对共享分支强推，禁止跳过评审直接合并。
+- Codex Worktree 是本机隔离区，不是跨电脑同步机制；两台电脑通过 Git fetch、分支与 Pull Request 协作。
+
+## 代码和测试
+
+- 后端单元测试：`python -m pytest -q tests`。
+- 前端构建：在 `frontend/` 执行 `npm ci`、`npm run build`。
+- 小程序提交前执行 `python scripts/check_miniprogram.py`。
+- 修改数据库/API/题目标识/批改规则等共享契约时，说明兼容性、迁移与回滚，并补充负例测试。
+- 测试必须使用合成数据、SQLite/Mock 或临时文件；不得依赖真实学员信息或本机私有数据。

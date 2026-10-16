@@ -1,0 +1,24 @@
+<view class="page">
+  <view class="row">
+    <view>
+      <view class="page-title">{{className || '班级作业'}}</view>
+      <view class="muted">已发布作业</view>
+    </view>
+    <text class="create-link" bindtap="createAssignment">＋ 发作业</text>
+  </view>
+
+  <view wx:if="{{loading && !assignments.length}}" class="empty">正在加载作业…</view>
+  <view wx:elif="{{!assignments.length}}" class="empty">这个班级还没有作业</view>
+  <view wx:for="{{assignments}}" wx:key="id" class="card teacher-assignment">
+    <view class="assignment-name">{{item.title}}</view>
+    <view class="muted assignment-date">教学日期 {{item.assignment_date}}</view>
+    <view class="muted assignment-description">{{item.description || '暂无作业说明'}}</view>
+    <view class="row assignment-info">
+      <text class="muted">截止 {{item.dueLabel}}</text>
+      <text class="pill">{{item.submission_count || 0}} 人已提交</text>
+    </view>
+    <button class="secondary-button compact-button" data-id="{{item.id}}" bindtap="openSubmissions">
+      查看提交情况
+    </button>
+  </view>
+</view>

@@ -1,0 +1,69 @@
+<view class="page">
+  <view class="row heading">
+    <view>
+      <view class="page-title">我的作业</view>
+      <view class="muted">你好，{{currentUser.full_name || currentUser.username}}</view>
+    </view>
+    <text class="logout-link" bindtap="logout">退出</text>
+  </view>
+
+  <view class="student-switch card">
+    <view class="row">
+      <view>
+        <view class="muted">当前学生</view>
+        <view class="student-current">{{selectedStudentName || '请选择学生'}}</view>
+      </view>
+      <text class="identity-link" bindtap="openRelations">身份与家庭关系 ›</text>
+    </view>
+    <view wx:if="{{students.length > 1}}" class="student-options">
+      <view wx:for="{{students}}" wx:key="student_id" class="student-chip {{selectedStudentId === item.student_id ? 'student-chip-active' : ''}}"
+        data-id="{{item.student_id}}" bindtap="selectStudent">{{item.name}}</view>
+    </view>
+    <view wx:if="{{students.length > 1 && !selectedStudentId}}" class="muted select-hint">请选择学生后查看对应作业</view>
+  </view>
+
+  <view class="card mistake-entry" bindtap="openMistakes">
+    <view><view class="section-title">我的错题与订正</view><view class="muted">回看题目来源、提交订正和查看反馈</view></view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="card independent-entry" bindtap="openIndependentPractice">
+    <view><view class="section-title">自主拍照批改</view><view class="muted">不依赖老师布置的作业，拍照后单独批改</view></view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="tabs">
+    <view class="tab {{activeTab === 'pending' ? 'tab-active' : ''}}" data-tab="pending" bindtap="selectTab">待完成</view>
+    <view class="tab {{activeTab === 'completed' ? 'tab-active' : ''}}" data-tab="completed" bindtap="selectTab">已完成</view>
+  </view>
+
+  <view wx:if="{{loading && !assignments.length}}" class="empty">正在加载作业…</view>
+  <view wx:elif="{{!visibleAssignments.length}}" class="empty">
+    {{activeTab === 'pending' ? '暂无待完成作业' : '还没有已完成作业'}}
+  </view>
+  <view wx:for="{{visibleAssignments}}" wx:key="id" class="card assignment-card"
+    data-id="{{item.id}}" bindtap="openAssignment">
+    <view class="row">
+      <text class="assignment-title">{{item.title}}</text>
+      <text class="pill {{item.submitted && item.task_status === 'SUCCESS' ? 'pill-success' : (item.submitted ? 'pill-muted' : '')}}">
+        {{item.statusLabel}}
+      </text>
+    </view>
+    <view class="muted assignment-meta">{{item.class_name}} · 截止 {{item.dueLabel}}</view>
+    <view wx:if="{{item.submitted}}" class="muted assignment-meta">已提交 · {{item.task_id}}</view>
+    <view class="card-arrow">›</view>
+  </view>
+
+  <view wx:if="{{independentTasks.length}}" class="independent-history">
+    <view class="section-title history-title">自主批改记录</view>
+    <view wx:for="{{independentTasks}}" wx:key="task_id" class="card assignment-card"
+      data-task-id="{{item.task_id}}" bindtap="openIndependentResult">
+      <view class="row">
+        <text class="assignment-title">{{item.subjectLabel}} · 自主练习</text>
+        <text class="pill {{item.status === 'SUCCESS' ? 'pill-success' : 'pill-muted'}}">{{item.statusLabel}}</text>
+      </view>
+      <view class="muted assignment-meta">{{item.createdLabel}} · {{item.question_count}} 道题</view>
+      <view class="card-arrow">›</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,16 @@
+.intro { margin: -12rpx 0 20rpx; line-height: 1.55; }
+.controls { display: grid; gap: 12rpx; }
+.field-label { margin: 14rpx 0 8rpx; color: #53627a; font-size: 24rpx; }
+.picker-value { min-height: 74rpx; line-height: 74rpx; }
+.section-title { margin: 0 0 14rpx; font-size: 30rpx; font-weight: 700; }
+.tier-row { display: grid; grid-template-columns: 1fr 230rpx; align-items: center; gap: 14rpx; padding: 16rpx 0; border-bottom: 1rpx solid #e8edf4; }
+.tier-student { font-weight: 600; }
+.tier-picker { min-height: 64rpx; line-height: 64rpx; padding: 0 12rpx; font-size: 23rpx; }
+.fallback-box { display: grid; gap: 8rpx; margin: 18rpx 0; padding: 18rpx; border-radius: 12rpx; background: #f4f7fb; }
+.fallback-box label { display: flex; align-items: center; }
+.fallback-box .muted { font-size: 22rpx; line-height: 1.5; }
+.variant-card { margin-top: 20rpx; padding: 18rpx 0; border-top: 1rpx solid #e8edf4; }
+.variant-heading { justify-content: space-between; }
+.variant-input { box-sizing: border-box; width: 100%; min-height: 190rpx; padding: 16rpx; line-height: 1.5; }
+.answer-input { min-height: 120rpx; }
+.compact { min-height: 68rpx; margin-top: 14rpx; font-size: 23rpx; }

@@ -1,0 +1,59 @@
+<view class="page">
+  <view class="page-title">学科分层与分层作业</view>
+  <view class="muted intro">层级按班级、学生和学科分别保存。学生端只收到服务端按本人身份分配的题目内容。</view>
+
+  <view wx:if="{{!classes.length && !loading}}" class="empty">当前教师账号还没有班级，请先创建或加入班级。</view>
+  <view wx:if="{{classes.length}}" class="card controls">
+    <view class="field-label">班级</view>
+    <picker range="{{classes}}" range-key="name" value="{{classIndex}}" bindchange="onClassChange">
+      <view class="input picker-value">{{classes[classIndex].name}}　⌄</view>
+    </picker>
+    <view class="field-label">学科</view>
+    <picker range="{{subjects}}" range-key="label" value="{{subjectIndex}}" bindchange="onSubjectChange">
+      <view class="input picker-value">{{subjects[subjectIndex].label}}　⌄</view>
+    </picker>
+  </view>
+
+  <view wx:if="{{loading}}" class="empty">正在读取分层与作业…</view>
+  <view wx:if="{{classes.length}}" class="card">
+    <view class="section-title">学生学科分层</view>
+    <view wx:if="{{!tierRows.length}}" class="muted">当前班级暂无名册。</view>
+    <view wx:for="{{tierRows}}" wx:key="roster_id" class="tier-row">
+      <view class="tier-student">{{item.student_name}}<text wx:if="{{!item.student_id}}" class="muted"> · 尚未绑定</text></view>
+      <picker wx:if="{{item.student_id}}" range="{{tierLevels}}" range-key="label" value="{{item.levelIndex}}" data-index="{{index}}" bindchange="onTierChange">
+        <view class="input tier-picker">{{tierLevels[item.levelIndex].label}}　⌄</view>
+      </picker>
+      <text wx:else class="muted">完成学生身份绑定后可分层</text>
+    </view>
+    <button wx:if="{{tierRows.length}}" class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveTiers">保存已绑定学生分层</button>
+  </view>
+
+  <view wx:if="{{classes.length}}" class="card">
+    <view class="section-title">三层作业版本</view>
+    <view wx:if="{{!assignments.length}}" class="muted">请先发布班级作业，再配置三个版本。</view>
+    <block wx:else>
+      <view class="field-label">班级作业</view>
+      <picker range="{{assignments}}" range-key="title" value="{{assignmentIndex}}" bindchange="onAssignmentChange">
+        <view class="input picker-value">{{assignments[assignmentIndex].title}}　⌄</view>
+      </picker>
+
+      <view class="fallback-box">
+        <checkbox-group bindchange="toggleFallback"><label><checkbox value="allow" checked="{{fallbackEnabled}}" />允许未分层学生使用统一版本</label></checkbox-group>
+        <picker wx:if="{{fallbackEnabled}}" range="{{levels}}" range-key="label" value="{{fallbackIndex}}" bindchange="onFallbackChange">
+          <view class="input picker-value">未分层统一使用：{{levels[fallbackIndex].label}}　⌄</view>
+        </picker>
+        <view class="muted">关闭时，未分层学生不能静默获得题目；需教师补充分层或明确启用统一降级。</view>
+      </view>
+
+      <view wx:for="{{variantDrafts}}" wx:key="code" class="variant-card">
+        <view class="row variant-heading"><text class="section-title">{{item.label}}（{{item.code}}）</text><text wx:if="{{item.version}}" class="muted">v{{item.version}}</text></view>
+        <view class="field-label">题目（每行一道）</view>
+        <textarea class="input variant-input" value="{{item.questions}}" data-index="{{index}}" data-field="questions" bindinput="onVariantInput" placeholder="输入题目文本，每行一道" />
+        <view class="field-label">参考答案（按题目顺序；只供批改使用）</view>
+        <textarea class="input variant-input answer-input" value="{{item.answers}}" data-index="{{index}}" data-field="answers" bindinput="onVariantInput" placeholder="可逐行填写参考答案" />
+        <button wx:if="{{item.version}}" class="secondary-button compact" data-level="{{item.code}}" bindtap="openPrintable">下载并打印本版本</button>
+      </view>
+      <button class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="saveVariants">保存三个作业版本</button>
+    </block>
+  </view>
+</view>

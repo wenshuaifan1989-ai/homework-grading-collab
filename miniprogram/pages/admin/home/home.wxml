@@ -1,0 +1,41 @@
+<view class="page">
+  <view class="row heading">
+    <view>
+      <view class="page-title">管理员工作台</view>
+      <view class="muted">一套部署 · 一所学校</view>
+    </view>
+    <text class="logout-link" bindtap="logout">退出</text>
+  </view>
+  <view class="card admin-summary">
+    <view><view class="summary-number">{{teachers.length}}</view><view class="muted">教师账号</view></view>
+    <view><view class="summary-number">{{classes.length}}</view><view class="muted">班级</view></view>
+    <text class="create-link" bindtap="createTeacher">＋ 创建教师</text>
+  </view>
+  <view class="card family-homework-link" bindtap="openFamilyHomework">
+    <view class="action-copy">
+      <view class="section-title">家庭作业</view>
+      <view class="muted">切换家庭关联的学生身份</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+  <view class="section-title section-heading">教师管理</view>
+  <view wx:if="{{!teachers.length}}" class="empty">暂无教师账号</view>
+  <view wx:for="{{teachers}}" wx:key="id" class="card teacher-row">
+    <view>
+      <view class="section-title">{{item.full_name}}</view>
+      <view class="muted">{{item.phone}} · 班级 {{item.class_count}} 个</view>
+    </view>
+    <text class="status-action {{item.is_active ? 'active' : 'inactive'}}" data-id="{{item.id}}" data-active="{{item.is_active}}" bindtap="toggleTeacher">
+      {{item.is_active ? "停用" : "启用"}}
+    </text>
+  </view>
+  <view class="section-title section-heading">全部班级与名册</view>
+  <view wx:if="{{!classes.length}}" class="empty">暂无班级</view>
+  <view wx:for="{{classes}}" wx:key="id" class="card class-row" data-id="{{item.id}}" bindtap="openRoster">
+    <view>
+      <view class="section-title">{{item.name}}</view>
+      <view class="muted">教师：{{item.teacher_name}} · 名册 {{item.roster_count}} 人</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+</view>

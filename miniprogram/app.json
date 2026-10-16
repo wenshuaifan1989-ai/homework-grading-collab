@@ -1,0 +1,35 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/student/bind/bind",
+    "pages/student/homework/homework",
+    "pages/student/detail/detail",
+    "pages/student/submit/submit",
+    "pages/student/result/result",
+    "pages/student/mistakes/mistakes",
+    "pages/teacher/home/home",
+    "pages/teacher/learning/learning",
+    "pages/teacher/mistakes/mistakes",
+    "pages/teacher/classes/classes",
+    "pages/teacher/class-relations/class-relations",
+    "pages/teacher/dashboard/dashboard",
+    "pages/teacher/question-students/question-students",
+    "pages/teacher/class-form/class-form",
+    "pages/teacher/assignments/assignments",
+    "pages/teacher/assignment-form/assignment-form",
+    "pages/teacher/submissions/submissions",
+    "pages/teacher/result/result",
+    "pages/admin/home/home",
+    "pages/teacher/roster/roster"
+  ],
+  "window": {
+    "navigationBarTitleText": "作业批改",
+    "navigationBarBackgroundColor": "#f4f7fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f4f7fb",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,100 @@
+.dashboard-links text {
+  margin-left: 18rpx;
+  color: #1769ef;
+  font-size: 24rpx;
+}
+
+.date-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 26rpx;
+}
+
+.date-value {
+  color: #17243a;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.date-arrow {
+  padding: 0 22rpx;
+  color: #1769ef;
+  font-size: 48rpx;
+}
+
+.calendar-hints {
+  padding: 18rpx 22rpx;
+  white-space: nowrap;
+}
+
+.date-chip {
+  display: inline-block;
+  margin-left: 12rpx;
+  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  background: #eaf2ff;
+  color: #1769ef;
+  font-size: 22rpx;
+}
+
+.stats-row {
+  display: flex;
+  gap: 14rpx;
+  margin-bottom: 26rpx;
+}
+
+.stat-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  padding: 22rpx 8rpx;
+  border-radius: 18rpx;
+  background: #fff;
+}
+
+.stat-number {
+  color: #1769ef;
+  font-size: 38rpx;
+  font-weight: 750;
+}
+
+.success-number { color: #11965b; }
+.pending-number { color: #c48b13; }
+
+.section-title {
+  margin: 24rpx 0 14rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.assignment-tabs {
+  white-space: nowrap;
+}
+
+.assignment-tab {
+  display: inline-block;
+  min-width: 300rpx;
+  margin-right: 14rpx;
+  padding: 20rpx;
+  border-radius: 18rpx;
+  background: #fff;
+}
+
+.active-tab { background: #eaf2ff; color: #1769ef; }
+.question-stat { padding: 22rpx; }
+.question-counts { margin-top: 16rpx; }
+.question-counts text { margin-right: 22rpx; font-size: 24rpx; }
+.correct-text { color: #11965b; }
+.wrong-text { color: #df4b4b; }
+.view-link { color: #1769ef; font-size: 23rpx; }
+
+.filter-row { white-space: nowrap; margin-bottom: 12rpx; }
+.filter-pill { display: inline-block; margin-right: 10rpx; padding: 10rpx 16rpx; border-radius: 999rpx; background: #fff; color: #68768b; font-size: 22rpx; }
+.active-filter { background: #1769ef; color: #fff; }
+
+.student-row { display: flex; align-items: center; padding: 20rpx; }
+.student-info { flex: 1; }
+.student-name { margin-bottom: 8rpx; font-weight: 650; }
+.empty-inline { padding: 28rpx; color: #8390a4; text-align: center; }

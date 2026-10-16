@@ -1,0 +1,66 @@
+<view class="page">
+  <view class="row heading">
+    <view>
+      <view class="page-title">学生身份与家庭关系</view>
+      <view class="muted intro">身份关联仅用于查看对应学生的班级作业与结果</view>
+    </view>
+    <text class="logout-link" bindtap="logout">退出</text>
+  </view>
+
+  <view class="section-title">我关联的学生</view>
+  <view wx:if="{{!students.length}}" class="empty small-empty">尚未关联学生。学生本人可直接使用班级邀请码加入；家庭成员请先使用家庭关系码。</view>
+  <view wx:for="{{students}}" wx:key="student_id" class="card student-option {{selectedStudentId === item.student_id ? 'selected' : ''}}">
+    <view class="student-main" data-id="{{item.student_id}}" bindtap="selectStudent">
+      <view>
+        <view class="student-name">{{item.name}}</view>
+        <view class="muted">关系：{{item.relationship_label || item.relationship_type}}</view>
+      </view>
+      <text class="radio">{{selectedStudentId === item.student_id ? "●" : "○"}}</text>
+    </view>
+    <view wx:for="{{item.classes}}" wx:for-item="classItem" wx:key="class_id" class="student-class-row">
+      <view>
+        <text>{{classItem.class_name}}</text>
+        <text class="muted"> · {{classItem.status === 'pending_leave' ? '退出申请待审核' : '在读'}}</text>
+      </view>
+      <text wx:if="{{classItem.status === 'active'}}" class="inline-action" data-student-id="{{item.student_id}}"
+        data-class-id="{{classItem.class_id}}" catchtap="requestLeaveClass">申请退出</text>
+    </view>
+    <text class="inline-action" data-id="{{item.student_id}}" catchtap="createFamilyInvite">邀请家庭成员</text>
+    <text class="inline-action danger-link" data-id="{{item.student_id}}" catchtap="removeFamilyBinding">解除我的家庭关系</text>
+  </view>
+
+  <view class="card">
+    <view class="section-title">加入班级</view>
+    <view class="muted choice-tip">输入老师提供的邀请码和学生本人姓名。只在目标班名册内核对，不展示全班名单。</view>
+    <view wx:if="{{students.length > 1}}" class="muted form-hint">先在上方选中本次加入班级的学生</view>
+    <text class="field-label">班级邀请码</text>
+    <input class="input" maxlength="12" value="{{classCode}}" placeholder="请输入班级邀请码" bindinput="onClassCodeInput" />
+    <text class="field-label">学生姓名</text>
+    <input class="input" maxlength="100" value="{{studentName}}" placeholder="请输入名册中的姓名" bindinput="onStudentNameInput" />
+    <view wx:if="{{candidates.length}}" class="candidate-box">
+      <view class="muted choice-tip">检测到同名名册，请核对必要信息后选择：</view>
+      <view wx:for="{{candidates}}" wx:key="roster_id" class="candidate {{selectedRosterId === item.roster_id ? 'selected' : ''}}"
+        data-id="{{item.roster_id}}" bindtap="selectCandidate">
+        <view>{{item.student_name}}<text wx:if="{{item.student_no}}" class="muted"> · 学号 {{item.student_no}}</text></view>
+        <view wx:if="{{item.disambiguation_note}}" class="muted">{{item.disambiguation_note}}</view>
+        <text class="radio">{{selectedRosterId === item.roster_id ? "●" : "○"}}</text>
+      </view>
+    </view>
+    <button class="primary-button" loading="{{binding}}" disabled="{{binding}}" bindtap="joinClass">确认加入班级</button>
+  </view>
+
+  <view class="card">
+    <view class="section-title">绑定家庭成员</view>
+    <view class="muted choice-tip">由已关联该学生的家庭成员提供一次性关系码。</view>
+    <text class="field-label">家庭关系码</text>
+    <input class="input" maxlength="32" value="{{familyCode}}" placeholder="请输入家庭关系码" bindinput="onFamilyCodeInput" />
+    <text class="field-label">与学生的关系</text>
+    <picker mode="selector" range="{{relationshipLabels}}" value="{{relationshipIndex}}" bindchange="onRelationshipChange">
+      <view class="input picker-value">{{relationshipLabels[relationshipIndex]}}　⌄</view>
+    </picker>
+    <button class="secondary-button" loading="{{binding}}" disabled="{{binding}}" bindtap="bindFamily">确认家庭绑定</button>
+  </view>
+
+  <button wx:if="{{students.length}}" class="text-button" bindtap="backToHome">返回作业</button>
+  <view wx:else class="muted bind-footnote" bindtap="logout">不是本人账号？退出登录</view>
+</view>

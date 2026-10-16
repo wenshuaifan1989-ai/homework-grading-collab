@@ -1,0 +1,101 @@
+.submit-intro {
+  margin: -8rpx 0 28rpx;
+}
+
+.image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18rpx;
+}
+
+.image-cell,
+.image-add {
+  position: relative;
+  box-sizing: border-box;
+  width: calc((100% - 36rpx) / 3);
+  height: 210rpx;
+  overflow: hidden;
+  border-radius: 16rpx;
+  background: #e9eef5;
+}
+
+.preview-image {
+  width: 100%;
+  height: 100%;
+}
+
+.remove-image {
+  position: absolute;
+  top: 8rpx;
+  right: 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 50%;
+  background: rgba(20, 30, 45, .72);
+  color: #fff;
+  font-size: 34rpx;
+}
+
+.image-index {
+  position: absolute;
+  bottom: 46rpx;
+  left: 8rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 12rpx;
+  background: rgba(20, 30, 45, .62);
+  color: white;
+  font-size: 21rpx;
+}
+
+.order-actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 7rpx 0;
+  background: rgba(20, 30, 45, .72);
+  color: #fff;
+  font-size: 20rpx;
+}
+
+.order-action { padding: 2rpx 10rpx; }
+.order-disabled { opacity: .4; }
+.picker-row { margin-top: 14rpx; }
+.picker-value { margin-top: 8rpx; background: #fff; }
+
+.image-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx dashed #b8c7dc;
+  background: #fff;
+  color: #52647e;
+  font-size: 22rpx;
+}
+
+.plus {
+  margin-bottom: 4rpx;
+  color: #1769ef;
+  font-size: 54rpx;
+  line-height: 1;
+}
+
+.count-label {
+  margin: 18rpx 0 28rpx;
+}
+
+.upload-rule .muted {
+  margin-top: 12rpx;
+  line-height: 1.65;
+}
+
+.submit-button {
+  position: sticky;
+  bottom: 18rpx;
+}

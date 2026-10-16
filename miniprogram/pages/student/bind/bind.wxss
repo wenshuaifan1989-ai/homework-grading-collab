@@ -1,0 +1,25 @@
+.heading { margin-bottom: 22rpx; }
+.intro { margin-top: 10rpx; line-height: 1.6; }
+.logout-link { color: #75839a; font-size: 24rpx; }
+.section-title { margin: 22rpx 0 12rpx; font-weight: 650; }
+.choice-tip { margin: 8rpx 0 18rpx; line-height: 1.6; }
+.small-empty { padding: 24rpx; line-height: 1.7; }
+.student-option { padding: 0; overflow: hidden; border: 2rpx solid #e7ebf2; }
+.student-option.selected { border-color: #1769ef; background: #f5f8ff; }
+.student-main { display: flex; align-items: center; justify-content: space-between; padding: 22rpx; }
+.student-name { font-size: 29rpx; font-weight: 650; margin-bottom: 8rpx; }
+.radio { color: #1769ef; font-size: 32rpx; }
+.inline-action { display: block; padding: 14rpx 22rpx; border-top: 2rpx solid #eef1f6; color: #1769ef; font-size: 24rpx; }
+.student-class-row { display: flex; align-items: center; justify-content: space-between; padding: 14rpx 22rpx; border-top: 2rpx solid #eef1f6; font-size: 23rpx; }
+.danger-link { color: #bd4545; }
+.field-label { display: block; margin: 18rpx 0 10rpx; color: #53627a; font-size: 24rpx; }
+.input { box-sizing: border-box; width: 100%; min-height: 82rpx; padding: 18rpx; border: 2rpx solid #e5eaf2; border-radius: 12rpx; background: #fff; }
+.picker-value { color: #2b3d59; }
+.form-hint { margin: 10rpx 0; }
+.candidate-box { margin-top: 18rpx; padding: 16rpx; border-radius: 12rpx; background: #f7f9fc; }
+.candidate { position: relative; margin-top: 10rpx; padding: 18rpx 54rpx 18rpx 18rpx; border: 2rpx solid #e7ebf2; border-radius: 10rpx; background: white; line-height: 1.6; }
+.candidate.selected { border-color: #1769ef; background: #f1f6ff; }
+.candidate .radio { position: absolute; top: 50%; right: 16rpx; transform: translateY(-50%); }
+.primary-button, .secondary-button { margin-top: 22rpx; }
+.text-button { margin-top: 16rpx; color: #1769ef; background: transparent; }
+.bind-footnote { margin-top: 28rpx; text-align: center; }

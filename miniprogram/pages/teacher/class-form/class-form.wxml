@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="page-title">创建班级</view>
+  <view class="card">
+    <text class="field-label">班级名称</text>
+    <input class="input" value="{{name}}" maxlength="100" placeholder="例如：初一（1）班"
+      bindinput="onNameInput" confirm-type="done" />
+    <view class="muted form-hint">创建后会生成邀请码，可提供给班级学生</view>
+  </view>
+  <view class="card">
+    <text class="field-label">学校（可选）</text>
+    <view wx:if="{{selectedSchoolId}}" class="selected-school">
+      <text>{{selectedSchoolName}}</text>
+      <text class="clear-school" bindtap="clearSchool">更换</text>
+    </view>
+    <block wx:else>
+      <input class="input" value="{{schoolQuery}}" maxlength="200" placeholder="输入学校名称搜索"
+        bindinput="onSchoolQueryInput" />
+      <input class="input extra-input" value="{{schoolStage}}" maxlength="30" placeholder="学段（可选，如初中、高中）"
+        bindinput="onSchoolStageInput" />
+      <button class="secondary-button" bindtap="findSchools">搜索学校</button>
+      <view wx:for="{{schoolOptions}}" wx:key="id" class="school-option" data-id="{{item.id}}" bindtap="selectSchool">
+        <view>{{item.official_name}}</view>
+        <view class="muted">{{item.stage || '未标注学段'}}{{item.is_custom ? ' · 待规范' : ''}}</view>
+      </view>
+      <button wx:if="{{schoolQuery}}" class="text-button" bindtap="createCustomSchool">没有合适结果？登记为待规范学校</button>
+    </block>
+    <view class="muted form-hint">也可不选学校；自定义学校会标记为待规范，不会冒充标准名录。</view>
+  </view>
+  <view class="card">
+    <text class="field-label">学年</text>
+    <input class="input" value="{{academicYear}}" maxlength="20" placeholder="例如 2026-2027" bindinput="onAcademicYearInput" />
+    <text class="field-label">学期</text>
+    <input class="input" value="{{semester}}" maxlength="20" placeholder="例如 第一学期" bindinput="onSemesterInput" />
+    <text class="field-label">年级</text>
+    <input class="input" value="{{grade}}" maxlength="20" placeholder="例如 初一" bindinput="onGradeInput" />
+  </view>
+  <button class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="save">创建班级</button>
+</view>

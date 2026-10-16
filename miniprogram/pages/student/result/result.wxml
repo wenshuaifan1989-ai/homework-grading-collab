@@ -1,0 +1,42 @@
+<view class="page">
+  <view wx:if="{{result}}" class="card result-banner">
+    <view class="success-icon">✓</view>
+    <view class="result-main-title">批改完成</view>
+    <view class="muted">共 {{result.total_questions}} 道题 · {{result.image_count}} 张图片</view>
+  </view>
+  <view wx:elif="{{loading}}" class="card progress-card">
+    <view class="progress-title">{{statusLabel}}</view>
+    <view class="muted">正在处理整份作业，请稍候…</view>
+    <view class="task-id">任务编号：{{taskId}}</view>
+  </view>
+  <view wx:elif="{{errorMessage}}" class="card error-card">
+    <view class="section-title">{{canRetry ? '批改需要人工恢复' : (status === 'FAILED' ? '批改失败' : '暂时无法显示结果')}}</view>
+    <view class="muted error-message">{{errorMessage}}</view>
+    <button wx:if="{{canRetry}}" class="primary-button" loading="{{retryBusy}}" disabled="{{retryBusy}}" bindtap="retryTask">确认可能重复计费并手动重试</button>
+    <button wx:if="{{!canRetry}}" class="secondary-button" bindtap="refreshStatus">手动刷新任务状态</button>
+    <button class="secondary-button" bindtap="goBack">返回作业</button>
+  </view>
+
+  <view wx:if="{{result}}" class="score-card">
+    <view class="score-number">{{result.total_score}}</view>
+    <view class="score-caption">本次得分 <text wx:if="{{result.total_max_score}}">/ {{result.total_max_score}}</text></view>
+    <view class="score-counts">
+      <text>✓ {{result.correct_count}} 正确</text>
+      <text>◐ {{result.partial_count}} 部分</text>
+      <text>× {{result.wrong_count}} 错误</text>
+    </view>
+  </view>
+
+  <view wx:if="{{result && result.results.length}}" class="section-title question-heading">逐题批改</view>
+  <view wx:for="{{result.results}}" wx:key="question_block_id" class="card question-card">
+    <view class="row">
+      <text class="question-title">第 {{item.question_no}} 题</text>
+      <text class="outcome {{item.outcomeClass}}">{{item.outcome}}</text>
+    </view>
+    <view wx:if="{{item.student_answer}}" class="answer-line"><text class="answer-label">你的答案</text>{{item.student_answer}}</view>
+    <view wx:if="{{item.correct_answer}}" class="answer-line"><text class="answer-label">参考答案</text>{{item.correct_answer}}</view>
+    <view wx:if="{{item.comment || item.analysis}}" class="comment-line">{{item.comment || item.analysis}}</view>
+    <view class="muted score-line">得分 {{item.score}} / {{item.max_score}}</view>
+  </view>
+  <button wx:if="{{result && result.wrong_count > 0}}" class="secondary-button" bindtap="openMistakes">查看错题与提交订正</button>
+</view>

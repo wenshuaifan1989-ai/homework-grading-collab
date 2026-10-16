@@ -1,0 +1,43 @@
+.create-link,
+.copy-link {
+  color: #1769ef;
+  font-size: 24rpx;
+}
+
+.invite-accept { margin: 16rpx 0 22rpx; padding: 20rpx 22rpx; border-radius: 14rpx; background: #edf4ff; color: #1769ef; font-size: 25rpx; }
+
+.class-card {
+  padding: 24rpx;
+}
+
+.class-title {
+  font-size: 30rpx;
+  font-weight: 650;
+}
+
+.class-count {
+  margin-top: 10rpx;
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  margin-top: 22rpx;
+  padding-top: 18rpx;
+  border-top: 2rpx solid #f0f2f6;
+}
+
+.invite-code {
+  flex: 1;
+  margin-left: 18rpx;
+  color: #2b3d59;
+  font-size: 25rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.roster-link {
+  margin-top: 20rpx;
+  color: #1769ef;
+  font-size: 24rpx;
+}

@@ -1,0 +1,28 @@
+.create-link {
+  color: #1769ef;
+  font-size: 24rpx;
+}
+
+.teacher-assignment {
+  padding: 24rpx;
+}
+
+.assignment-name {
+  font-size: 30rpx;
+  font-weight: 650;
+}
+
+.assignment-description {
+  margin-top: 12rpx;
+  line-height: 1.5;
+}
+
+.assignment-info {
+  margin-top: 20rpx;
+}
+
+.compact-button {
+  min-height: 70rpx;
+  margin-top: 22rpx;
+  font-size: 26rpx;
+}

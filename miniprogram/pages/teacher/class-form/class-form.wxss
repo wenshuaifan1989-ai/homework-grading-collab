@@ -1,0 +1,9 @@
+.form-hint {
+  margin-top: 18rpx;
+}
+
+.extra-input { margin-top: 14rpx; }
+.school-option { padding: 18rpx 4rpx; border-bottom: 2rpx solid #edf0f5; line-height: 1.6; }
+.selected-school { display: flex; align-items: center; justify-content: space-between; padding: 18rpx; border-radius: 10rpx; background: #f1f6ff; color: #253650; }
+.clear-school, .text-button { color: #1769ef; font-size: 24rpx; }
+.text-button { margin-top: 12rpx; background: transparent; }

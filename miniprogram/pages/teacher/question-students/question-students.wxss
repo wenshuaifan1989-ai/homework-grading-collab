@@ -1,0 +1,10 @@
+.detail-head { text-align: center; }
+.detail-head .page-title { margin-bottom: 20rpx; font-size: 32rpx; }
+.counts text { margin: 0 10rpx; font-size: 24rpx; }
+.correct-text { color: #11965b; }
+.wrong-text { color: #df4b4b; }
+.section-title { margin: 26rpx 0 14rpx; font-size: 30rpx; font-weight: 700; }
+.student-row { display: flex; align-items: center; justify-content: space-between; padding: 20rpx; }
+.student-name { font-weight: 650; }
+.view-link { color: #1769ef; font-size: 23rpx; }
+.empty-inline { padding: 20rpx; color: #8390a4; }

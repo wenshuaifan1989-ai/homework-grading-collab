@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="page-title">作业提交情况</view>
+  <view class="stats-row">
+    <view class="stat-card"><text class="stat-number">{{submittedCount}}</text><text class="muted">已提交</text></view>
+    <view class="stat-card"><text class="stat-number pending-number">{{unsubmittedCount}}</text><text class="muted">未提交</text></view>
+  </view>
+  <view wx:if="{{loading && !students.length}}" class="empty">正在加载学生名单…</view>
+  <view wx:elif="{{!students.length}}" class="empty">班级暂无学生</view>
+  <view wx:for="{{students}}" wx:key="student_id" class="card student-row"
+    data-student="{{item.student_id}}" bindtap="openStudentResult">
+    <view class="student-avatar">{{item.initial}}</view>
+    <view class="student-info">
+      <view class="student-name">{{item.student_name}}</view>
+      <view class="muted">{{item.submitted ? ('提交时间 ' + item.submittedAtLabel) : '尚未提交'}}</view>
+    </view>
+    <text class="pill {{item.submitted ? 'pill-success' : 'pill-muted'}}">{{item.statusLabel}}</text>
+    <text wx:if="{{item.submitted}}" class="view-link">查看</text>
+  </view>
+</view>

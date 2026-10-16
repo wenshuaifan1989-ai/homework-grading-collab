@@ -1,0 +1,48 @@
+<view class="page login-page">
+  <view class="brand-mark">作</view>
+  <view class="login-title">作业批改</view>
+  <view class="muted login-subtitle">按提交作业，AI 智能批改</view>
+
+  <view class="card login-card">
+    <view wx:if="{{wechatProfileMode}}" class="wechat-profile">
+      <text class="field-label">绑定微信并完善个人资料（均可稍后）</text>
+      <button class="secondary-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="loginWithWechat">
+        绑定当前微信身份
+      </button>
+      <text class="field-label">姓名</text>
+      <input class="input" type="text" value="{{fullName}}" placeholder="请输入姓名"
+        bindinput="onFullNameInput" />
+      <text class="field-label">手机号</text>
+      <input class="input" type="number" maxlength="11" value="{{phone}}" placeholder="也可手工填写手机号"
+        bindinput="onPhoneInput" />
+      <button class="secondary-button" open-type="getPhoneNumber" bindgetphonenumber="onWechatPhone">
+        使用微信授权手机号
+      </button>
+      <button class="primary-button" bindtap="saveWechatProfile">保存资料并继续</button>
+      <view class="login-note" bindtap="skipWechatProfile">暂时跳过</view>
+    </view>
+    <view wx:else>
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="loginWithWechat">
+      微信快捷登录
+    </button>
+    <view class="login-divider">或使用手机号密码登录</view>
+    <text class="field-label">手机号</text>
+    <input class="input" type="number" maxlength="11" value="{{phone}}" placeholder="请输入 11 位手机号"
+      confirm-type="next" bindinput="onPhoneInput" />
+    <view wx:if="{{registerMode}}">
+      <text class="field-label">学生姓名</text>
+      <input class="input" type="text" value="{{fullName}}" placeholder="请输入名册中的姓名"
+        confirm-type="next" bindinput="onFullNameInput" />
+    </view>
+    <text class="field-label">密码</text>
+    <input class="input" type="text" password value="{{password}}" placeholder="请输入密码"
+      confirm-type="done" bindinput="onPasswordInput" bindconfirm="login" />
+    <button class="primary-button" loading="{{submitting}}" disabled="{{submitting}}" bindtap="login">
+      {{registerMode ? "注册学生账号" : "登录"}}
+    </button>
+    <view class="login-note" bindtap="toggleRegister">
+      {{registerMode ? "已有账号？返回登录" : "首次使用？注册学生账号"}}
+    </view>
+    </view>
+  </view>
+</view>

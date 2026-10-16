@@ -1,0 +1,9 @@
+{
+  "desc": "Homework grading mini program",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

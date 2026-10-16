@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="page-title">发布作业</view>
+  <view class="muted form-class">{{className}}</view>
+  <view class="card">
+    <text class="field-label">作业标题</text>
+    <input class="input" value="{{title}}" maxlength="200" placeholder="例如：9 月 15 日 数学作业"
+      bindinput="onTitleInput" />
+
+    <text class="field-label">学科</text>
+    <picker range="{{subjectOptions}}" range-key="label" value="{{subjectIndex}}" bindchange="onSubjectChange">
+      <view class="picker-value">{{subjectOptions[subjectIndex].label}}</view>
+    </picker>
+
+    <text class="field-label">年级</text>
+    <picker range="{{gradeOptions}}" range-key="label" value="{{gradeIndex}}" bindchange="onGradeChange">
+      <view class="picker-value">{{gradeOptions[gradeIndex].label}}</view>
+    </picker>
+
+    <text class="field-label">作业说明</text>
+    <textarea class="textarea" value="{{description}}" maxlength="2000"
+      placeholder="填写完成要求，学生拍照前可查看" bindinput="onDescriptionInput" />
+
+    <text class="field-label">教学日期</text>
+    <picker mode="date" value="{{assignmentDate}}" bindchange="onAssignmentDateChange">
+      <view class="picker-value">{{assignmentDate}}</view>
+    </picker>
+
+    <text class="field-label">截止日期</text>
+    <picker mode="date" value="{{dueDate}}" bindchange="onDueDateChange">
+      <view class="picker-value">{{dueDate}}</view>
+    </picker>
+
+    <text class="field-label">截止时间</text>
+    <picker mode="time" value="{{dueTime}}" bindchange="onDueTimeChange">
+      <view class="picker-value">{{dueTime}}</view>
+    </picker>
+  </view>
+  <button class="primary-button" loading="{{saving}}" disabled="{{saving}}" bindtap="publish">发布作业</button>
+</view>

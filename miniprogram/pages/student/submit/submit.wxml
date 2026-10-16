@@ -1,0 +1,46 @@
+<view class="page">
+  <view class="page-title">{{assignmentTitle || '提交作业'}}</view>
+  <view class="muted submit-intro">连续拍摄或选择作业图片，确认后一次提交（最多 9 张）</view>
+
+  <view wx:if="{{independent}}" class="card upload-rule">
+    <view class="section-title">自主练习信息</view>
+    <view class="picker-row">
+      <text class="field-label">学科</text>
+      <picker range="{{subjects}}" range-key="name" value="{{subjectIndex}}" bindchange="onSubjectChange">
+        <view class="input picker-value">{{subjects[subjectIndex].name}}　⌄</view>
+      </picker>
+    </view>
+    <view class="picker-row">
+      <text class="field-label">年级</text>
+      <picker range="{{grades}}" range-key="name" value="{{gradeIndex}}" bindchange="onGradeChange">
+        <view class="input picker-value">{{grades[gradeIndex].name}}　⌄</view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="image-grid">
+    <view wx:for="{{images}}" wx:key="key" class="image-cell">
+      <image class="preview-image" src="{{item.path}}" mode="aspectFill"
+        data-path="{{item.path}}" bindtap="previewImage" />
+      <view class="remove-image" data-index="{{index}}" catchtap="removeImage">×</view>
+      <text class="image-index">{{index + 1}}</text>
+      <view class="order-actions">
+        <text class="order-action {{index === 0 ? 'order-disabled' : ''}}" data-index="{{index}}" data-direction="-1" bindtap="moveImage">上移</text>
+        <text class="order-action {{index === images.length - 1 ? 'order-disabled' : ''}}" data-index="{{index}}" data-direction="1" bindtap="moveImage">下移</text>
+      </view>
+    </view>
+    <view wx:if="{{images.length < 9}}" class="image-add" bindtap="chooseImages">
+      <text class="plus">＋</text>
+      <text>添加图片</text>
+      <text class="muted">最多 9 张</text>
+    </view>
+  </view>
+
+  <view class="muted count-label">已选 {{images.length}} / 9 张</view>
+  <view class="card upload-rule">
+    <view class="section-title">一次提交说明</view>
+    <view class="muted">选图和拍照只会加入本地队列；点击下方按钮后，所有图片作为同一份作业提交。</view>
+  </view>
+  <button class="primary-button submit-button" loading="{{submitting}}" disabled="{{submitting}}"
+    bindtap="submit">{{independent ? '提交批改' : '提交作业'}}</button>
+</view>

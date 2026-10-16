@@ -1,0 +1,25 @@
+<view class="page">
+  <view wx:if="{{detail}}">
+    <view class="card detail-head">
+      <view class="page-title">第 {{detail.question_no}} 题学生明细</view>
+      <view class="counts"><text class="correct-text">正确 {{detail.correct_count}} 人</text><text class="wrong-text">错误 {{detail.wrong_count}} 人</text><text class="muted">未识别 {{detail.unrecognized_count}} 人</text></view>
+    </view>
+    <view class="section-title">错误学生</view>
+    <view wx:if="{{!detail.wrong_students.length}}" class="empty-inline">暂无</view>
+    <view wx:for="{{detail.wrong_students}}" wx:key="roster_id" class="card student-row" data-student="{{item.user_id}}" bindtap="openStudent">
+      <view><view class="student-name">{{item.student_name}}</view><view class="muted">{{item.student_no || '无学号'}}</view></view><text class="view-link">查看结果 ›</text>
+    </view>
+    <view class="section-title">正确学生</view>
+    <view wx:if="{{!detail.correct_students.length}}" class="empty-inline">暂无</view>
+    <view wx:for="{{detail.correct_students}}" wx:key="roster_id" class="card student-row" data-student="{{item.user_id}}" bindtap="openStudent">
+      <view><view class="student-name">{{item.student_name}}</view><view class="muted">{{item.student_no || '无学号'}}</view></view><text class="view-link">查看结果 ›</text>
+    </view>
+    <view class="section-title">未识别学生</view>
+    <view wx:if="{{!detail.unrecognized_students.length}}" class="empty-inline">暂无</view>
+    <view wx:for="{{detail.unrecognized_students}}" wx:key="roster_id" class="card student-row" data-student="{{item.user_id}}" bindtap="openStudent">
+      <view><view class="student-name">{{item.student_name}}</view><view class="muted">{{item.student_no || '无学号'}}</view></view><text class="view-link">查看结果 ›</text>
+    </view>
+  </view>
+  <view wx:elif="{{loading}}" class="empty">正在加载题目明细…</view>
+  <view wx:else class="card error-card">{{errorMessage}}</view>
+</view>

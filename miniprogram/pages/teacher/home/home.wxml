@@ -1,0 +1,62 @@
+<view class="page">
+  <view class="row heading">
+    <view>
+      <view class="page-title">教师工作台</view>
+      <view class="muted">欢迎，{{currentUser.full_name || currentUser.username}}</view>
+    </view>
+    <text class="logout-link" bindtap="logout">退出</text>
+  </view>
+
+  <view class="teacher-banner">
+    <view class="teacher-banner-title">作业批改</view>
+    <view class="teacher-banner-copy">班级、作业与批改结果</view>
+  </view>
+
+  <view class="card teacher-action" bindtap="openClasses">
+    <view class="action-icon blue">班</view>
+    <view class="action-copy">
+      <view class="section-title">我的班级</view>
+      <view class="muted">管理班级与学生</view>
+    </view>
+    <view class="action-count">{{classCount}}</view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="card teacher-action" bindtap="createClass">
+    <view class="action-icon orange">＋</view>
+    <view class="action-copy">
+      <view class="section-title">创建班级</view>
+      <view class="muted">生成邀请码，开始布置作业</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="card teacher-action" bindtap="openFamilyHomework">
+    <view class="action-icon blue">家</view>
+    <view class="action-copy">
+      <view class="section-title">家庭作业</view>
+      <view class="muted">切换家庭关联的学生身份</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="card teacher-action" bindtap="openPaperReview">
+    <view class="action-icon orange">题</view>
+    <view class="action-copy">
+      <view class="section-title">纸质题校对与错题</view>
+      <view class="muted">复核题目、班级错题和学生订正</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="card teacher-action" bindtap="openLearning">
+    <view class="action-icon blue">分</view>
+    <view class="action-copy">
+      <view class="section-title">学科分层与分层作业</view>
+      <view class="muted">设置学生层级、维护三种作业版本</view>
+    </view>
+    <text class="card-arrow">›</text>
+  </view>
+
+  <view class="muted teacher-footnote">提交情况和学生结果可从班级作业列表进入查看</view>
+</view>

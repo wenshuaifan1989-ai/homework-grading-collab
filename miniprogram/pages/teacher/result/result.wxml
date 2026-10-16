@@ -1,0 +1,21 @@
+<view class="page">
+  <view wx:if="{{result}}" class="card teacher-result-head">
+    <view class="page-title">学生批改结果</view>
+    <view class="muted">任务：{{result.task_id}}</view>
+    <view class="teacher-score">{{result.total_score}} <text wx:if="{{result.total_max_score}}">/ {{result.total_max_score}}</text></view>
+    <view class="muted">{{result.total_questions}} 道题 · {{result.image_count}} 张图片</view>
+  </view>
+  <view wx:elif="{{loading}}" class="empty">正在读取结果…</view>
+  <view wx:elif="{{errorMessage}}" class="card error-card">{{errorMessage}}</view>
+
+  <view wx:for="{{result.results}}" wx:key="question_block_id" class="card question-card">
+    <view class="row">
+      <text class="question-title">第 {{item.question_no}} 题</text>
+      <text class="outcome {{item.outcomeClass}}">{{item.outcome}}</text>
+    </view>
+    <view wx:if="{{item.student_answer}}" class="answer-line"><text class="answer-label">学生答案</text>{{item.student_answer}}</view>
+    <view wx:if="{{item.correct_answer}}" class="answer-line"><text class="answer-label">参考答案</text>{{item.correct_answer}}</view>
+    <view wx:if="{{item.comment || item.analysis}}" class="comment-line">{{item.comment || item.analysis}}</view>
+    <view class="muted score-line">得分 {{item.score}} / {{item.max_score}}</view>
+  </view>
+</view>

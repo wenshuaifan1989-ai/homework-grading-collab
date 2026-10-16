@@ -1,0 +1,46 @@
+<view class="page">
+  <view class="page-title">{{className}} · 教师与班级管理</view>
+  <view class="card">
+    <view class="section-title">本班教师</view>
+    <view wx:if="{{loading && !teachers.length}}" class="muted">正在加载…</view>
+    <view wx:for="{{teachers}}" wx:key="user_id" class="teacher-row">
+      <view>
+        <view class="teacher-name">{{item.name}} <text class="role-badge">{{item.role === 'owner' ? 'owner' : '教师'}}</text></view>
+        <view class="muted">{{item.subjectLabel}}</view>
+      </view>
+      <text wx:if="{{isOwner && item.role !== 'owner'}}" class="danger-link" data-id="{{item.user_id}}" bindtap="removeTeacher">移除</text>
+    </view>
+    <button class="secondary-button" bindtap="inviteTeacher">生成教师邀请（一次性 / 7 天）</button>
+  </view>
+
+  <view wx:if="{{isOwner}}" class="card">
+    <view class="section-title">Owner 管理</view>
+    <button class="secondary-button" bindtap="resetStudentInvite">重置学生加入码</button>
+    <button class="secondary-button" bindtap="transferOwner">转移 owner</button>
+    <button class="secondary-button" data-status="archived" bindtap="changeClassStatus">正常归档班级</button>
+    <button class="danger-button" data-status="dissolved" bindtap="changeClassStatus">终止 / 解散班级</button>
+  </view>
+  <view wx:if="{{isOwner && pendingLeaves.length}}" class="card">
+    <view class="section-title">待处理的学生退出申请</view>
+    <view wx:for="{{pendingLeaves}}" wx:key="student_id" class="request-row">
+      <text>{{item.student_name}}</text>
+      <view>
+        <text class="request-action" data-student-id="{{item.student_id}}" data-approve="true" bindtap="reviewStudentLeave">批准</text>
+        <text class="request-action muted-action" data-student-id="{{item.student_id}}" data-approve="false" bindtap="reviewStudentLeave">保留</text>
+      </view>
+    </view>
+  </view>
+  <view wx:if="{{isOwner && pendingFamilyBindings.length}}" class="card">
+    <view class="section-title">待处理的最后一个家庭关系</view>
+    <view wx:for="{{pendingFamilyBindings}}" wx:key="binding_id" class="request-row">
+      <text>{{item.student_name}} · {{item.user_name}}</text>
+      <view>
+        <text class="request-action" data-student-id="{{item.student_id}}" data-user-id="{{item.user_id}}"
+          data-approve="true" bindtap="reviewFamilyBinding">批准解除</text>
+        <text class="request-action muted-action" data-student-id="{{item.student_id}}" data-user-id="{{item.user_id}}"
+          data-approve="false" bindtap="reviewFamilyBinding">保留</text>
+      </view>
+    </view>
+  </view>
+  <button wx:if="{{!isOwner}}" class="danger-button" bindtap="leaveClass">退出本班教师关系</button>
+</view>

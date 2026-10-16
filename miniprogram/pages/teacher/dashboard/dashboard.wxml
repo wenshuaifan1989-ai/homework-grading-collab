@@ -1,0 +1,71 @@
+<view class="page">
+  <view class="row">
+    <view>
+      <view class="page-title">班级每日教学仪表盘</view>
+      <view class="muted">{{className}}</view>
+    </view>
+    <view class="dashboard-links">
+      <text bindtap="openRoster">名册</text>
+      <text bindtap="openAssignments">发作业</text>
+    </view>
+  </view>
+
+  <view class="date-bar card">
+    <text class="date-arrow" data-amount="-1" bindtap="moveDate">‹</text>
+    <picker mode="date" value="{{date}}" bindchange="chooseDate">
+      <view class="date-value">{{date}} <text class="muted">（选择日期）</text></view>
+    </picker>
+    <text class="date-arrow" data-amount="1" bindtap="moveDate">›</text>
+  </view>
+
+  <view wx:if="{{calendarDates.length}}" class="calendar-hints card">
+    <text class="muted">{{month}} 有作业：</text>
+    <text wx:for="{{calendarDates}}" wx:key="date" class="date-chip">{{item.date}} · {{item.assignment_count}}份</text>
+  </view>
+
+  <view wx:if="{{loading && !classStats}}" class="empty">正在加载当天教学数据…</view>
+  <block wx:else>
+    <view wx:if="{{classStats}}" class="stats-row">
+      <view class="stat-card"><text class="stat-number">{{classStats.roster_total}}</text><text class="muted">学生总数</text></view>
+      <view class="stat-card"><text class="stat-number success-number">{{classStats.bound_count}}</text><text class="muted">已绑定</text></view>
+      <view class="stat-card"><text class="stat-number pending-number">{{classStats.unbound_count}}</text><text class="muted">未绑定</text></view>
+    </view>
+
+    <view class="section-title">当天作业</view>
+    <view wx:if="{{!assignments.length}}" class="card empty-inline">当天没有已发布作业</view>
+    <scroll-view wx:else scroll-x="true" class="assignment-tabs">
+      <view wx:for="{{assignments}}" wx:key="id" class="assignment-tab {{item.id === selectedAssignmentId ? 'active-tab' : ''}}"
+        data-id="{{item.id}}" bindtap="selectAssignment">
+        <view>{{item.title}}</view>
+        <view class="muted">提交 {{item.submitted_count}} · 完成 {{item.completed_count}}</view>
+      </view>
+    </scroll-view>
+
+    <view wx:if="{{questionStats.length}}" class="section-title">逐题结果（人数）</view>
+    <view wx:for="{{questionStats}}" wx:key="question_key" class="card question-stat" data-key="{{item.question_key}}" bindtap="openQuestion">
+      <view class="row"><text>第 {{item.question_no}} 题</text><text class="view-link">查看学生 ›</text></view>
+      <view class="question-counts">
+        <text class="correct-text">正确 {{item.correct_count}} 人</text>
+        <text class="wrong-text">错误 {{item.wrong_count}} 人</text>
+        <text wx:if="{{item.unrecognized_count}}" class="muted">未识别 {{item.unrecognized_count}} 人</text>
+      </view>
+    </view>
+
+    <view class="section-title">全班学生状态</view>
+    <view class="filter-row">
+      <text class="filter-pill {{filter === 'all' ? 'active-filter' : ''}}" data-filter="all" bindtap="setFilter">全部</text>
+      <text class="filter-pill {{filter === 'unsubmitted' ? 'active-filter' : ''}}" data-filter="unsubmitted" bindtap="setFilter">未提交</text>
+      <text class="filter-pill {{filter === 'grading' ? 'active-filter' : ''}}" data-filter="grading" bindtap="setFilter">批改中</text>
+      <text class="filter-pill {{filter === 'completed' ? 'active-filter' : ''}}" data-filter="completed" bindtap="setFilter">已完成</text>
+      <text class="filter-pill {{filter === 'unbound' ? 'active-filter' : ''}}" data-filter="unbound" bindtap="setFilter">未绑定</text>
+    </view>
+    <view wx:for="{{students}}" wx:key="roster_id" wx:if="{{filter === 'all' || (filter === 'unbound' ? item.bind_status === 'unbound' : item.submission_status === filter)}}"
+      class="card student-row" data-student="{{item.user_id}}" bindtap="openStudent">
+      <view class="student-info">
+        <view class="student-name">{{item.student_name}} <text wx:if="{{item.student_no}}" class="muted">{{item.student_no}}</text></view>
+        <view class="muted">{{item.submission_status_label}}{{item.score !== null ? ' · 得分 ' + item.score : ''}}</view>
+      </view>
+      <text class="pill {{item.submission_status === 'completed' ? 'pill-success' : 'pill-muted'}}">{{item.submission_status_label}}</text>
+    </view>
+  </block>
+</view>

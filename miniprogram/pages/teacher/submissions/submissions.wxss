@@ -1,0 +1,61 @@
+.stats-row {
+  display: flex;
+  gap: 18rpx;
+  margin-bottom: 22rpx;
+}
+
+.stat-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  padding: 26rpx 12rpx;
+  border-radius: 18rpx;
+  background: #fff;
+}
+
+.stat-number {
+  margin-bottom: 8rpx;
+  color: #1769ef;
+  font-size: 42rpx;
+  font-weight: 750;
+}
+
+.pending-number {
+  color: #ec972c;
+}
+
+.student-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+}
+
+.student-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70rpx;
+  height: 70rpx;
+  margin-right: 18rpx;
+  border-radius: 50%;
+  background: #e8f0ff;
+  color: #1769ef;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.student-info {
+  flex: 1;
+}
+
+.student-name {
+  margin-bottom: 8rpx;
+  font-weight: 650;
+}
+
+.view-link {
+  margin-left: 14rpx;
+  color: #1769ef;
+  font-size: 23rpx;
+}

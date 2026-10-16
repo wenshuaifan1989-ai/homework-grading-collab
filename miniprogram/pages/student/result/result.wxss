@@ -1,0 +1,116 @@
+.result-banner {
+  text-align: center;
+}
+
+.success-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 78rpx;
+  height: 78rpx;
+  margin: 0 auto 12rpx;
+  border-radius: 50%;
+  background: #dff7ea;
+  color: #15a160;
+  font-size: 46rpx;
+  font-weight: 800;
+}
+
+.result-main-title,
+.progress-title {
+  margin-bottom: 12rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.progress-card {
+  text-align: center;
+}
+
+.task-id {
+  margin-top: 22rpx;
+  color: #76839a;
+  font-size: 22rpx;
+  word-break: break-all;
+}
+
+.error-message {
+  margin-top: 16rpx;
+  line-height: 1.6;
+}
+
+.score-card {
+  margin: 20rpx 0 34rpx;
+  padding: 28rpx;
+  border-radius: 20rpx;
+  background: #fff;
+  text-align: center;
+}
+
+.score-number {
+  color: #1769ef;
+  font-size: 58rpx;
+  font-weight: 800;
+}
+
+.score-caption,
+.score-counts {
+  color: #718097;
+  font-size: 23rpx;
+}
+
+.score-counts {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 22rpx;
+}
+
+.question-heading {
+  margin: 24rpx 0 16rpx;
+}
+
+.question-title {
+  font-size: 28rpx;
+  font-weight: 650;
+}
+
+.outcome {
+  font-size: 24rpx;
+  font-weight: 650;
+}
+
+.result-correct {
+  color: #11965b;
+}
+
+.result-partial {
+  color: #c48b13;
+}
+
+.result-wrong {
+  color: #df4b4b;
+}
+
+.answer-line,
+.comment-line {
+  margin-top: 20rpx;
+  line-height: 1.55;
+}
+
+.answer-label {
+  display: block;
+  margin-bottom: 4rpx;
+  color: #8591a4;
+  font-size: 22rpx;
+}
+
+.comment-line {
+  padding: 16rpx;
+  border-radius: 12rpx;
+  background: #f5f8fc;
+}
+
+.score-line {
+  margin-top: 18rpx;
+  text-align: right;
+}
