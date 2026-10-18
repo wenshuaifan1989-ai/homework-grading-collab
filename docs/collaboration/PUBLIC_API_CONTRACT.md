@@ -16,10 +16,10 @@ Status: baseline contract plus explicitly marked additive proposal. No database 
 
 ## Change process
 
-1. Propose method/path, field types, ID meaning, authentication, error responses and an anonymized example before client changes.
-2. Backend owner records compatibility, migration/down or compensation plan, and whether the change is additive. Obtain student-side acknowledgement before removing/renaming existing fields.
+1. Develop candidate client/server changes independently on a feature branch and isolated test database. Document method/path, field types, ID meaning, authentication, errors and an anonymous example alongside the change; no pre-development owner approval is required.
+2. Supply compatibility, migration/down or compensation and additive/breaking-change notes in the integration PR. The owner resolves the final shared contract at merge review, not as a daily development gate. Retain old fields/compatible behavior while existing clients depend on them.
 3. Run contract tests including forbidden identities, cross-class resources, duplicate submissions and partial/failed results.
-4. Merge the compatible backend before dependent student changes. Keep the old contract for the agreed transition window.
+4. Develop and test both sides in the isolated branch without waiting for teacher/admin completion; mark unavailable real integrations pending rather than claiming mocks are live. For integration, merge the compatible backend before dependent student changes and retain the compatibility window. Only the owner confirms merges into develop.
 5. Reverting source does not revert database data. Retain immutable records and separately review data compensation.
 
 ## Local additive library proposal
