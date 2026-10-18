@@ -2,6 +2,10 @@
 
 This runbook preserves shared Git history and separates application rollback from database recovery. It documents a procedure; it does not authorize production deployment.
 
+## Local rollback rehearsal
+
+Run `python scripts/rehearse_rollback.py` before relying on this procedure. The script clones the current repository into an automatically removed temporary directory, creates one synthetic file and commit, reverts that commit with `git revert`, compares the resulting tree with the starting commit, and runs the version-governance checker. It has no remote push, production, database, student-data, or deployment effects. Its generated commit IDs are local rehearsal evidence only.
+
 ## Before merge
 
 For an unmerged feature branch, stop further pushes if the change is unsafe. Keep the branch and PR for review. Correct the branch in a new commit or close the PR after the owner decides it is no longer needed. Do not reset a shared branch, force-push, or delete another developer's work.

@@ -14,3 +14,4 @@ This is the initial technical collaboration candidate only. It has not been tagg
 
 - Establish a single software version source, change log, release gates, and safe rollback guidance.
 - Add offline version and public-content checks to CI and a manual readiness workflow that does not publish.
+- Add a disposable local revert rehearsal and regression test without rewriting shared history.
