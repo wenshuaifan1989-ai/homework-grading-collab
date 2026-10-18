@@ -26,6 +26,8 @@ Teacher uploads default private. Shared visibility requires the same authorized 
 | GET /papers/{id}/suggest-requirements | class_id required; authorized school/subject/grade; evidence-backed suggestions only, never automatic tier changes |
 | GET /catalog | authorized scope only; missing/uncollected catalog stays empty, never invented |
 | GET /trends | Shanghai Monday-Sunday window from actual publication events with explicit UTC timestamps; distinct teacher per paper; at least three teachers; visible papers only; legacy timestamps of unknown timezone are not inferred |
+
+Trends also require an explicit verified catalog_version and matching asset edition. Without school/class textbook configuration, the current UI displays a pending-configuration notice and no popularity card. An unknown edition never falls back to unfiltered same-grade activity.
 | POST /ai-intent | prompt plus explicit use_current_point=false by default; current implementation returns MODEL_NOT_RUN with quota 0; no model call |
 
 Upload source_kind is assigned by the server, not client supplied. Raw files and hashes remain immutable. Sharing withdrawal leaves existing assignments, frozen answers, original grades and publication download access intact. New source metadata is additive to a publication snapshot and is not returned by student_fields.
