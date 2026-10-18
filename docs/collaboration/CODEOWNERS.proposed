@@ -1,0 +1,17 @@
+# Proposal only. Not installed as .github/CODEOWNERS.
+# In a two-person repository the PR author cannot satisfy independent approval.
+# Check collaborator acceptance and review deadlocks before enabling owner-required reviews.
+/app/ @wenshuaifan1989-ai
+/models/ @wenshuaifan1989-ai
+/schemas/ @wenshuaifan1989-ai
+/services/ @wenshuaifan1989-ai
+/utils/ @wenshuaifan1989-ai
+/frontend/src/views/PlatformAdminView.vue @wenshuaifan1989-ai
+/frontend/src/views/Teacher* @wenshuaifan1989-ai
+/frontend/src/views/Student* @santaozy123-hub
+/frontend/src/api/student.ts @santaozy123-hub
+/miniprogram/pages/student/ @santaozy123-hub
+/frontend/src/components/AppLayout.vue @wenshuaifan1989-ai @santaozy123-hub
+/frontend/src/router/ @wenshuaifan1989-ai @santaozy123-hub
+/miniprogram/utils/ @wenshuaifan1989-ai @santaozy123-hub
+/.github/ @wenshuaifan1989-ai @santaozy123-hub
