@@ -1,0 +1,19 @@
+name: Release metadata check (no publish)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Check version candidate without publishing
+        run: python scripts/check_version_governance.py --release-candidate
+      - name: Scan public repository contents
+        run: python scripts/check_collab_safety.py
