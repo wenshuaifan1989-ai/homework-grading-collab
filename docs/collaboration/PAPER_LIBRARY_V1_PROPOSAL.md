@@ -23,8 +23,9 @@ Teacher uploads default private. Shared visibility requires the same authorized 
 | PUT /papers/{id} | existing PaperEdit with expected_revision; saves a new draft revision, no published snapshot changes |
 | POST /papers/{id}/confirm | original answer/source audit remains required |
 | POST /papers/{id}/publish | existing Publish contract; shared read does not confer edit access; freeze original contribution metadata |
+| GET /papers/{id}/suggest-requirements | class_id required; authorized school/subject/grade; evidence-backed suggestions only, never automatic tier changes |
 | GET /catalog | authorized scope only; missing/uncollected catalog stays empty, never invented |
-| GET /trends | Shanghai Monday-Sunday window from actual publication events; distinct teacher per paper; at least three teachers; visible papers only |
+| GET /trends | Shanghai Monday-Sunday window from actual publication events with explicit UTC timestamps; distinct teacher per paper; at least three teachers; visible papers only; legacy timestamps of unknown timezone are not inferred |
 | POST /ai-intent | prompt plus explicit use_current_point=false by default; current implementation returns MODEL_NOT_RUN with quota 0; no model call |
 
 Upload source_kind is assigned by the server, not client supplied. Raw files and hashes remain immutable. Sharing withdrawal leaves existing assignments, frozen answers, original grades and publication download access intact. New source metadata is additive to a publication snapshot and is not returned by student_fields.
@@ -36,3 +37,5 @@ The migration only creates the metadata table. Its immediate second run creates 
 Local tests cover cross-role/school/subject access, direct raw-file authorization, sharing revocation and stale versions, idempotency, legacy read compatibility, trusted catalog IDs, actual-publication trend deduplication, frozen assignments and source integrity. These are isolated API tests, not GUI/model accuracy or two-person acceptance.
 
 The full content-edit/reorder/delete/undo and newly rendered layout artifact contract is still pending. Do not implement a student layout assumption against this proposal or treat draft UI changes as a newly generated paper. Paid AI generation, real GUI and device acceptance remain separate gates.
+
+For library-managed papers, structural edits and old transfer endpoints return 409 until a newly rendered layout artifact exists. Current draft editing saves title and per-question attributes while retaining original question identity/order. This guards against distributing the old PDF as a rearranged paper; it is not completion of the layout editor.
