@@ -26,4 +26,6 @@ Status: baseline contract plus explicitly marked additive proposal. No database 
 
 The planned /api/v1/paper-library endpoints add administrator/teacher library metadata, school/subject visibility and revocable sharing. They do not replace student homework, submission or result endpoints. Student-side work must continue using the baseline until this proposal is implemented, tested, reviewed and merged.
 
+The proposed fields, permissions, compatibility and migration limits are specified in [PAPER_LIBRARY_V1_PROPOSAL.md](PAPER_LIBRARY_V1_PROPOSAL.md). Local implementation is not a deployed or merged contract.
+
 No sample in this document is a real student record. Paid model calls remain outside this contract and require explicit authorization.
