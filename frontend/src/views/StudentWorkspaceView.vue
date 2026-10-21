@@ -6,7 +6,7 @@ import { studentApi, type LinkedStudent, type RosterOption, type StudentAssignme
 import { paperApi, type MistakeItem } from '@/api/paper';
 import type { GradingResultResponse } from '@/api/homework';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
-import StudentSubjectFilter from '@/components/student/StudentSubjectFilter.vue';
+import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
 import { assignmentFilters, assignmentGroup, dateLabel, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
 const auth = useAuthStore();
@@ -39,6 +39,7 @@ const activeAssignmentId = ref<number | null>(null);
 const uploader = ref<{
     hasDraft: boolean;
     busy: boolean;
+    unresolved?: boolean;
 } | null>(null);
 const result = ref<GradingResultResponse | null>(null);
 const resultTaskId = ref('');
@@ -61,6 +62,11 @@ const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval> | undefined;
 const selectedStudent = computed(() => students.value.find(item => item.student_id === selectedStudentId.value));
 const subjects = computed(() => [...new Set(assignments.value.map(item => item.subject).filter(Boolean))]);
+const subjectCounts = computed(() => assignmentsLoaded.value ? assignments.value.reduce<Record<string, number>>((counts, item) => {
+    counts[''] = (counts[''] || 0) + 1;
+    if (item.subject) counts[item.subject] = (counts[item.subject] || 0) + 1;
+    return counts;
+}, { '': 0 }) : undefined);
 const effectiveAssignments = computed(() => assignments.value.map(item => item.task_id && resultReviewIds.value.has(item.task_id) ? { ...item, task_status: 'HOLD_REVIEW' } : item));
 const visibleAssignments = computed(() => sortAssignments(effectiveAssignments.value.filter(item => (!subject.value || item.subject === subject.value) && (status.value === 'all' || assignmentGroup(item) === status.value) && (!search.value.trim() || (item.title + ' ' + item.class_name).includes(search.value.trim())))));
 const activeAssignment = computed(() => assignments.value.find(item => item.id === activeAssignmentId.value));
@@ -70,13 +76,22 @@ const upcoming = computed(() => [...todos.value].filter(item => item.due_at).sor
 const openMistakes = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)));
 const headingDate = computed(() => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now.value)));
 const summaryVisible = computed(() => !!result.value && trustedSummary(result.value));
+function clearFilters() { subject.value = ''; status.value = 'all'; search.value = ''; }
+async function showReminder(group: AssignmentFilter) {
+    clearFilters();
+    status.value = group;
+    await nextTick();
+    document.getElementById('assignments-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function apiError(value: any, fallback: string) { return value?.response?.data?.detail || value?.response?.data?.message || value?.message || fallback; }
 function mayDiscard(): boolean {
     if (uploader.value?.busy) {
         error.value = '作业正在提交，请等候提交结果后再操作。';
         return false;
     }
-    return !uploader.value?.hasDraft || window.confirm('还有未提交的作业照片。离开会丢弃这些照片，是否继续？');
+    return !uploader.value?.hasDraft || window.confirm(uploader.value?.unresolved
+        ? '这份作业的提交结果尚未确认。离开后将丢失本次重试信息，请先重试或联系老师核实。仍要离开吗？'
+        : '还有未提交的作业照片。离开会丢弃这些照片，是否继续？');
 }
 function beforeUnload(event: BeforeUnloadEvent) { if (uploader.value?.hasDraft || uploader.value?.busy) {
     event.preventDefault();
@@ -272,6 +287,7 @@ async function openSubmit(item: StudentAssignment) {
         return;
     }
     error.value = '';
+    clearResult();
     activeAssignmentId.value = item.id;
     await nextTick();
     document.getElementById('student-submission')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -291,6 +307,8 @@ async function onSubmitted(response: {
     }
     activeAssignmentId.value = null;
     notice.value = `已收到整份作业，共 ${response.image_count} 张照片。请保留任务编号：${response.task_id}。`;
+    await nextTick();
+    document.getElementById('submission-receipt')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     // The server receipt is authoritative even if the following list refresh fails.
     const id = selectedStudentId.value, request = serial;
     if (id) {
@@ -342,8 +360,11 @@ async function showResult(taskId: string) {
             resultError.value = apiError(err, '暂时无法读取结果，请重试。');
     }
     finally {
-        if (request === resultSerial)
+        if (request === resultSerial) {
             resultBusy.value = false;
+            await nextTick();
+            document.getElementById('feedback-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     }
 }
 async function loadOriginalImages() {
@@ -420,7 +441,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
     <header class="page-header">
 <div>
 <p class="date-line">{{ headingDate }} · 学生学习工作台</p>
-<h1>我的作业<span>一步一步，完成今天的学习。</span>
+<h1>我的作业<span>{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '查看作业、完成练习、记录进步' }}</span>
 </h1>
 </div>
 <label v-if="students.length" class="identity-picker">当前学生<select :value="selectedStudentId || ''" :disabled="uploader?.busy" @change="changeStudent">
@@ -430,7 +451,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </label>
 </header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-<p v-if="notice" class="notice success" role="status">{{ notice }}</p>
+<p v-if="notice" id="submission-receipt" class="notice success" role="status">{{ notice }}</p>
     <details class="family-panel">
 <summary>家庭关联</summary>
 <p class="muted">只向实际家庭成员提供一次性关系码。</p>
@@ -475,34 +496,28 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </fieldset>
 </section>
     <StudentWorkbench v-else>
-      <section class="welcome">
-<div>
-<p class="eyebrow">{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '我的学习' }}</p>
-<h2>今天，也认真向前一步</h2>
-<p>先看清要求，完成后再一次提交整份作业。</p>
-</div>
-<div class="welcome-count">
-<strong>{{ assignmentsLoaded ? todos.length : '—' }}</strong>
-<span>份作业待提交</span>
-</div>
-</section>
+      <template #navigation>
+        <StudentStudyNavigation v-model="subject" page="assignments" :subjects="subjects" :counts="subjectCounts" />
+      </template>
       <section class="panel assignments-panel" aria-labelledby="assignments-heading">
         <div class="section-heading">
-<h2 id="assignments-heading">作业清单</h2>
+<div>
+<p class="eyebrow">{{ subject ? subjectLabel(subject) : '全部学科' }}</p>
+<h2 id="assignments-heading">作业清单 <span v-if="assignmentsLoaded" class="list-count">{{ visibleAssignments.length }} 份</span></h2>
+</div>
 <button class="text-button" :disabled="loading || !!uploader?.busy" @click="refreshAssignments">{{ loading ? '读取中…' : '刷新列表' }}</button>
 </div>
-        <StudentSubjectFilter v-model="subject" :subjects="subjects" />
+        <nav class="status-tabs" aria-label="作业状态筛选">
+          <button v-for="item in assignmentFilters" :key="item.value" type="button" :aria-pressed="status === item.value" @click="status=item.value">{{ item.label }}</button>
+        </nav>
         <div class="filters">
-<label>作业状态<select v-model="status">
-<option v-for="item in assignmentFilters" :key="item.value" :value="item.value">{{ item.label }}</option>
-</select>
-</label>
 <label class="search">搜索作业<input v-model="search" placeholder="作业标题或班级" type="search" />
 </label>
+<button v-if="subject || status !== 'all' || search" class="text-button" @click="clearFilters">清除筛选</button>
 </div>
         <p v-if="loading" class="empty" role="status">正在读取本人作业…</p>
 <p v-else-if="!selectedStudentId" class="empty">请先选择已绑定的学生身份。</p>
-<p v-else-if="!visibleAssignments.length" class="empty">当前范围没有作业。可以试试其他学科或状态。</p>
+<p v-else-if="!visibleAssignments.length && !error" class="empty">当前范围没有作业。可以试试其他学科或状态。</p>
         <div v-else class="assignment-list">
 <article v-for="item in visibleAssignments" :key="`${item.id}-${item.student_id}`" class="assignment-card">
 <div class="card-top">
@@ -538,6 +553,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <h2 id="feedback-heading">作业反馈</h2>
 <button class="text-button" :disabled="resultBusy" @click="showResult(resultTaskId)">刷新进度</button>
 </div>
+<p class="muted">{{ assignments.find(item => item.task_id === resultTaskId)?.title || resultTaskId }}</p>
 <p v-if="resultBusy" role="status">正在读取作业状态…</p>
 <p v-if="resultNotice" class="review-notice" role="status">{{ resultNotice }}</p>
 <p v-if="resultError" class="notice error" role="alert">{{ resultError }}</p>
@@ -566,12 +582,12 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
       <template #reminders>
         <section class="reminder-card">
 <p class="eyebrow">学习提醒</p>
-<h2>别忘了这些事</h2>
-<button class="reminder-count" @click="status='todo'">
+<h2>我的待办</h2>
+<button class="reminder-count" @click="showReminder('todo')">
 <span>待提交作业</span>
 <strong>{{ assignmentsLoaded ? todos.length : '—' }}</strong>
 </button>
-<button class="reminder-count" @click="status='review'">
+<button class="reminder-count" @click="showReminder('review')">
 <span>等待老师复核</span>
 <strong>{{ assignmentsLoaded ? reviews.length : '—' }}</strong>
 </button>
@@ -588,7 +604,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </section>
         <section class="reminder-card">
 <p class="eyebrow">错题待办</p>
-<h2>让不会的，慢慢变会</h2>
+<h2>待订正错题</h2>
 <p v-if="!selectedStudentId" class="muted">请先选择本人学生身份。</p>
 <p v-else-if="loadingMistakes" class="muted">正在读取错题…</p>
 <p v-else-if="mistakeError" class="muted">错题待办暂不可用，请到错题库重试。</p>
@@ -620,34 +636,34 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
   </div>
 </template>
 <style scoped>
-.student-v1{color:#263d32;max-width:1420px;margin:0 auto;padding:6px 4px 34px}
+.student-v1{color:#263d32;max-width:1600px;margin:0 auto;padding:6px 0 34px;min-width:0}
 .page-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:28px}
 .date-line,.eyebrow{color:#6d8275;font-size:12px;letter-spacing:.06em;margin:0 0 10px}
 .page-header h1{font-size:30px;margin:0;letter-spacing:-.04em}
 .page-header h1 span{display:block;margin-top:10px;font-size:14px;font-weight:400;letter-spacing:0;color:#7b8a80}
 .identity-picker{font-size:12px;display:grid;gap:8px;min-width:160px}
-.welcome{border-radius:18px;background:#e9f0e6;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:28px;margin-bottom:22px;border:1px solid #dce6d8}
-.welcome h2{font-size:24px;letter-spacing:-.03em;margin:0 0 12px}
-.welcome p:last-child{color:#6b7e6d;font-size:13px;margin:0;line-height:1.8}
-.welcome-count{display:grid;gap:6px;text-align:center;flex-shrink:0}
-.welcome-count strong{font-size:43px;font-weight:500}
-.welcome-count span{font-size:11px;color:#60755f}
-.panel,.reminder-card{background:#fff;border:1px solid #e1e8e1;border-radius:16px;padding:23px}
+.panel,.reminder-card{background:#fff;border:1px solid #e1e8e1;border-radius:14px;padding:20px;min-width:0}
 .panel{margin-bottom:20px}
 .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
 .section-heading h2,.reminder-card h2{font-size:17px;margin:0;font-weight:650}
 .reminder-card h2{margin-bottom:18px}
+.list-count{font-size:12px;font-weight:400;color:#75887a;margin-left:7px}
+.student-v1 .status-tabs{display:flex;gap:14px;flex-wrap:wrap;border-bottom:1px solid #e4ebe5}
+.student-v1 .status-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#708176;padding:10px 0;font-size:12px}
+.student-v1 .status-tabs button[aria-pressed=true]{border-color:#185d49;color:#185d49;font-weight:650}
+.student-v1 button:focus-visible,.student-v1 a:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
 .student-v1 button{border:1px solid #185d49;background:#185d49;color:#fff;border-radius:9px;cursor:pointer;padding:10px 15px;font:inherit;font-size:13px}
 .student-v1 button:disabled{opacity:.45;cursor:not-allowed}
 .student-v1 .secondary{background:#fff;color:#365d49;border-color:#d3dfd7}
 .student-v1 .text-button{background:transparent;color:#527565;border:0;padding:4px;font-size:12px}
 .student-v1 input,.student-v1 select{border:1px solid #d8e1da;background:#fff;border-radius:8px;padding:9px 11px;min-height:39px;font:inherit;font-size:13px;color:#365140;box-sizing:border-box;max-width:100%}
-.filters{display:flex;align-items:end;gap:12px;margin-top:20px;padding-bottom:18px;border-bottom:1px solid #edf0eb}
+.filters{display:flex;align-items:end;gap:12px;margin-top:16px;padding-bottom:18px;border-bottom:1px solid #edf0eb}
 .filters label{display:grid;gap:7px;font-size:12px;color:#7a897e}
 .filters select{min-width:140px}
 .search{flex:1}
 .assignment-list{display:grid;gap:16px;margin-top:20px}
-.assignment-card{border:1px solid #e4e9e1;border-radius:12px;padding:20px;background:#fff}
+.assignment-card{border:1px solid #e4e9e1;border-radius:10px;padding:18px;background:#fff}
+.assignment-card:focus-within{border-color:#8bb5a0}
 .card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .subject-pill,.status-pill{font-size:11px;padding:5px 10px;border-radius:6px;background:#eff4f1;color:#56705e}
 .status-pill{background:#f4f3ed;color:#81765c}
@@ -698,8 +714,6 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 @media(max-width:650px){.page-header{align-items:start;flex-direction:column}
 .page-header h1{font-size:26px}
 .identity-picker{width:100%}
-.welcome{padding:21px}
-.welcome h2{font-size:20px}
 .panel{padding:17px}
 .filters{flex-direction:column;align-items:stretch}
 .assignment-card{padding:15px}

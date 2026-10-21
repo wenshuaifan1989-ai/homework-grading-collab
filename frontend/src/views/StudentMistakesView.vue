@@ -4,7 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router';
 import { paperApi, type MistakeItem } from '@/api/paper';
 import { studentApi, type LinkedStudent } from '@/api/student';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
-import StudentSubjectFilter from '@/components/student/StudentSubjectFilter.vue';
+import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import { mistakeLabel, subjectLabel, trustedQuestion } from '@/student/workbench';
 const students = ref<LinkedStudent[]>([]);
 const studentId = ref<number | null>(null);
@@ -30,6 +30,11 @@ const error = ref('');
 const notice = ref('');
 let serial = 0;
 const subjects = computed(() => [...new Set(mistakes.value.map(item => item.subject).filter(Boolean))] as string[]);
+const subjectCounts = computed(() => mistakesLoaded.value ? mistakes.value.reduce<Record<string, number>>((counts, item) => {
+    counts[''] = (counts[''] || 0) + 1;
+    if (item.subject) counts[item.subject] = (counts[item.subject] || 0) + 1;
+    return counts;
+}, { '': 0 }) : undefined);
 const knowledgePoints = computed(() => [...new Set(mistakes.value.flatMap(item => item.knowledge_points || []))].sort());
 const visibleMistakes = computed(() => mistakes.value.filter(item => (!subject.value || item.subject === subject.value) && (!dateFilter.value || item.created_at?.slice(0, 10) === dateFilter.value) && (!knowledge.value || (knowledge.value === '__unclassified__' ? !item.knowledge_points?.length : item.knowledge_points?.includes(knowledge.value))) && (state.value === 'all' || (state.value === 'todo' && ['open', 'pending'].includes(item.status)) || (state.value === 'review' && item.status === 'correction_submitted') || (state.value === 'done' && item.status === 'mastered'))));
 const reviewItems = computed(() => mistakes.value.filter(item => selected.value.has(item.id)));
@@ -158,21 +163,26 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
   <section class="mistake-workspace">
     <header class="page-header">
 <div>
-<p class="eyebrow">我的学习 · 回顾与订正</p>
+<p class="eyebrow">学生学习工作台 · 回顾与订正</p>
 <h1>我的错题库</h1>
-<p class="muted">看懂问题，认真订正，让每次练习都有收获。</p>
+<p class="muted">回看原题与本人作答，订正后查看老师审核记录。</p>
 </div>
 <router-link to="/student">返回我的作业 →</router-link>
 </header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
 <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
     <StudentWorkbench>
+      <template #navigation>
+        <StudentStudyNavigation v-model="subject" page="mistakes" :subjects="subjects" :counts="subjectCounts" />
+      </template>
       <section class="panel filter-panel">
 <div class="section-heading">
-<h2>错题与订正</h2>
+<div>
+<p class="eyebrow">{{ subject ? subjectLabel(subject) : '全部学科' }}</p>
+<h2>错题与订正 <span v-if="mistakesLoaded" class="list-count">{{ visibleMistakes.length }} 题</span></h2>
+</div>
 <button class="text-button" :disabled="loading || busyId!==null" @click="loadMistakes">刷新错题</button>
 </div>
-<StudentSubjectFilter v-model="subject" :subjects="subjects" />
 <div class="filters">
 <label>学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
 <option value="">选择已绑定学生</option>
@@ -245,7 +255,7 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
       <template #reminders>
 <section class="reminder-card">
 <p class="eyebrow">学习待办</p>
-<h2>给错题一点时间</h2>
+<h2>订正进度</h2>
 <p class="count-line">
 <span>待订正</span>
 <strong>{{ mistakesLoaded ? pendingCount : '—' }}</strong>
@@ -282,16 +292,18 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
   </section>
 </template>
 <style scoped>
-.mistake-workspace{color:#263d32;max-width:1420px;margin:0 auto;padding:6px 4px 34px}
+.mistake-workspace{color:#263d32;max-width:1600px;min-width:0;margin:0 auto;padding:6px 0 34px}
 .page-header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}
 .eyebrow{font-size:12px;color:#7c8e80;letter-spacing:.06em;margin:0 0 10px}
 .page-header h1{font-size:30px;margin:0}
 .page-header>a{color:#456c54;text-decoration:none;font-size:13px}
 .muted{font-size:13px;line-height:1.8;color:#7a8e7e}
-.panel,.reminder-card{border:1px solid #e0e8df;border-radius:16px;background:#fff;padding:23px;margin-bottom:18px}
+.panel,.reminder-card{border:1px solid #e0e8df;border-radius:14px;background:#fff;padding:20px;margin-bottom:18px;min-width:0}
 .reminder-card{margin:0}
 .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
 .section-heading h2,.reminder-card h2{font-size:17px;margin:0}
+.list-count{font-size:12px;font-weight:400;color:#75887a;margin-left:7px}
+.mistake-workspace button:focus-visible,.mistake-workspace a:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
 .filters{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap}
 .filters label{display:grid;gap:8px;flex:1;font-size:12px;min-width:130px;color:#6b806e}
 .mistake-workspace select,.mistake-workspace input[type=date],.mistake-workspace textarea{font:inherit;font-size:13px;box-sizing:border-box;padding:10px;border:1px solid #d6e1d7;border-radius:8px;background:#fff;color:#385541;max-width:100%}

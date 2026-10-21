@@ -33,6 +33,8 @@ let cameraStream: MediaStream | null = null;
 let cameraSession = 0;
 const submissionKey = ref('');
 const submitting = ref(false);
+// A lost response may still mean a task exists. Preserve that request's exact photos and order.
+const queueLocked = computed(() => submitting.value || !!submissionKey.value);
 const error = ref('');
 function clearUploadQueue() {
     uploadPreviews.value.forEach((url) => URL.revokeObjectURL(url));
@@ -42,7 +44,7 @@ function clearUploadQueue() {
     uploadError.value = '';
 }
 function appendPhotos(files: File[]): boolean {
-    if (submitting.value || !files.length)
+    if (queueLocked.value || !files.length)
         return false;
     if (selectedFiles.value.length + files.length > 9) {
         uploadError.value = `已有 ${selectedFiles.value.length} 张，最多还能添加 ${9 - selectedFiles.value.length} 张。`;
@@ -70,7 +72,7 @@ function onFileChange(event: Event) {
         closeCamera();
 }
 function removePhoto(index: number) {
-    if (submitting.value || index < 0 || index >= selectedFiles.value.length)
+    if (queueLocked.value || index < 0 || index >= selectedFiles.value.length)
         return;
     URL.revokeObjectURL(uploadPreviews.value[index]);
     selectedFiles.value.splice(index, 1);
@@ -80,7 +82,7 @@ function removePhoto(index: number) {
 }
 function movePhoto(index: number, direction: number) {
     const target = index + direction;
-    if (submitting.value || index < 0 || index >= selectedFiles.value.length || target < 0 || target >= selectedFiles.value.length)
+    if (queueLocked.value || index < 0 || index >= selectedFiles.value.length || target < 0 || target >= selectedFiles.value.length)
         return;
     [selectedFiles.value[index], selectedFiles.value[target]] = [selectedFiles.value[target], selectedFiles.value[index]];
     [uploadPreviews.value[index], uploadPreviews.value[target]] = [uploadPreviews.value[target], uploadPreviews.value[index]];
@@ -103,7 +105,7 @@ function closeCamera() {
     stopCamera();
 }
 async function openCamera() {
-    if (submitting.value || selectedFiles.value.length >= 9)
+    if (queueLocked.value || selectedFiles.value.length >= 9)
         return;
     stopCamera();
     const session = cameraSession;
@@ -142,7 +144,7 @@ async function openCamera() {
     }
 }
 async function takePhoto() {
-    if (!cameraReady.value || cameraBusy.value || submitting.value)
+    if (!cameraReady.value || cameraBusy.value || queueLocked.value)
         return;
     const video = cameraVideo.value;
     if (!video?.videoWidth || !video.videoHeight)
@@ -213,7 +215,7 @@ async function submitAssignment() {
         submitting.value = false;
     }
 }
-defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: computed(() => submitting.value) });
+defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: computed(() => submitting.value), unresolved: computed(() => !!submissionKey.value && !submitting.value) });
 onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 </script>
 <template>
@@ -234,11 +236,12 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 </div>
             <p class="muted">拍清整页，按页码添加；拍照后先检查，最后一次提交。</p>
             <div class="photo-add-actions">
-              <button type="button" class="btn btn-primary" :disabled="submitting || selectedFiles.length >= 9" @click="openCamera">拍照添加</button>
-              <label class="student-file-picker" :class="{ 'is-disabled': submitting || selectedFiles.length >= 9 }">从相册选择<input aria-label="从相册选择作业照片" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" multiple :disabled="submitting || selectedFiles.length >= 9" @change="onFileChange" />
+              <button type="button" class="btn btn-primary" :disabled="queueLocked || selectedFiles.length >= 9" @click="openCamera">拍照添加</button>
+              <label class="student-file-picker" :class="{ 'is-disabled': queueLocked || selectedFiles.length >= 9 }">从相册选择<input aria-label="从相册选择作业照片" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" multiple :disabled="queueLocked || selectedFiles.length >= 9" @change="onFileChange" />
 </label>
             </div>
             <p v-if="uploadError" class="photo-error" role="alert">{{ uploadError }}</p>
+            <p v-if="submissionKey && !submitting" class="retry-notice" role="status">尚未确认提交结果，照片与顺序已锁定。请保留本页，用原照片重试；若持续失败，请联系老师核实，避免重复提交。</p>
             <ol v-if="selectedFiles.length" class="photo-queue" aria-label="待提交作业照片">
               <li v-for="(file, index) in selectedFiles" :key="uploadPreviews[index]" class="photo-item">
                 <button type="button" class="photo-thumbnail" :aria-label="`预览第 ${index + 1} 张照片`" @click="showPhoto(index)">
@@ -247,14 +250,14 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 </button>
                 <span class="photo-name" :title="file.name">{{ file.name }}</span>
                 <div class="photo-controls">
-                  <button type="button" :aria-label="`前移第 ${index + 1} 张照片`" :disabled="submitting || index === 0" @click="movePhoto(index, -1)">前移</button>
-                  <button type="button" :aria-label="`后移第 ${index + 1} 张照片`" :disabled="submitting || index === selectedFiles.length - 1" @click="movePhoto(index, 1)">后移</button>
-                  <button type="button" :aria-label="`删除第 ${index + 1} 张照片`" :disabled="submitting" @click="removePhoto(index)">删除</button>
+                  <button type="button" :aria-label="`前移第 ${index + 1} 张照片`" :disabled="queueLocked || index === 0" @click="movePhoto(index, -1)">前移</button>
+                  <button type="button" :aria-label="`后移第 ${index + 1} 张照片`" :disabled="queueLocked || index === selectedFiles.length - 1" @click="movePhoto(index, 1)">后移</button>
+                  <button type="button" :aria-label="`删除第 ${index + 1} 张照片`" :disabled="queueLocked" @click="removePhoto(index)">删除</button>
                 </div>
               </li>
             </ol>
             <p v-else class="muted">还没有添加照片。支持 JPG、PNG、GIF、BMP，每张不超过 10MB。</p>
-            <button class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '提交中…' : `提交 ${selectedFiles.length} 张图片` }}</button>
+            <button class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '提交中…' : `${submissionKey ? '重试提交' : '提交'} ${selectedFiles.length} 张图片` }}</button>
     </div>
     <dialog ref="cameraDialog" class="photo-dialog" aria-labelledby="camera-heading" @close="stopCamera" @cancel="stopCamera">
       <div class="photo-dialog-heading">
@@ -320,6 +323,7 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 .photo-controls button:disabled { opacity: .4; cursor: not-allowed; }
 
 .photo-error { margin: 0; color: #a33131; font-size: .85rem; }
+.retry-notice{margin:0;padding:12px;border:1px solid #e6d6ab;border-radius:8px;background:#fff8e8;color:#806633;font-size:13px;line-height:1.8}
 
 .photo-dialog { width: min(680px, calc(100vw - 32px)); box-sizing: border-box; max-height: 90dvh; padding: 20px; border: 1px solid #d5e1eb; border-radius: 14px; color: #294a67; }
 

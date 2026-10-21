@@ -42,9 +42,9 @@ test('append preserves existing photos; cancellation/invalid/over-limit leave th
   assert.equal(h.selectedFiles.value.length,9);
   assert.equal(h.appendPhotos([image('tenth.png')]),false);
 });
-test('reordering and deletion keep previews aligned and invalidate the submission key',()=>{
+test('before submission, reordering and deletion keep files and previews aligned',()=>{
   const h=harness(); h.appendPhotos([image('first.png'),image('second.png')]);
-  const original=h.uploadPreviews.value[0]; h.submissionKey.value='previous'; h.movePhoto(1,-1);
+  const original=h.uploadPreviews.value[0]; h.movePhoto(1,-1);
   assert.equal(h.selectedFiles.value[0].name,'second.png');
   assert.equal(h.uploadPreviews.value[1],original); assert.equal(h.submissionKey.value,'');
   h.removePhoto(1); assert.equal(h.revoked[0],original); assert.equal(h.selectedFiles.value.length,1);
@@ -65,6 +65,24 @@ test('one multipart request, duplicate-click guard, queue lock and stable key af
   assert.equal(h.selectedFiles.value.length,2); assert.equal(h.submissionKey.value,key); assert.equal(h.submitting.value,false);
   h.api.submitAssignment=async(form,key)=>{h.requests.push({form,key});throw Error('synthetic offline');};
   await h.submitAssignment(assignment); assert.equal(h.requests[1].key,key);
+});
+test('an unconfirmed request cannot be changed into a second submission group',async()=>{
+  const h=harness(); h.appendPhotos([image('first.png'),image('second.png')]);
+  // A lost response may mean the server created the task, so changing the group is unsafe.
+  await h.submitAssignment();
+  const key=h.submissionKey.value;
+  assert.ok(key);
+  assert.equal(h.appendPhotos([image('third.png')]),false);
+  h.removePhoto(0); h.movePhoto(1,-1);
+  assert.deepEqual(Array.from(h.selectedFiles.value,f=>f.name),['first.png','second.png']);
+  assert.equal(h.submissionKey.value,key);
+  h.api.submitAssignment=async(form,retryKey)=>{
+    assert.equal(retryKey,key);
+    assert.deepEqual(form.getAll('files').map(f=>f.name),['first.png','second.png']);
+    return {data:{data:{task_id:'synthetic-existing-task',status:'WAIT_REVIEW',image_count:2}}};
+  };
+  await h.submitAssignment();
+  assert.equal(h.selectedFiles.value.length,0);
 });
 function camera(h){
   const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};

@@ -18,7 +18,7 @@ function setup() {
   const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, summaryVisible, openSubmit };';
   const vue = { ref: value => ({ value }), computed: get => ({ get value() { return get(); } }), nextTick: async () => {}, onMounted: () => {}, onBeforeUnmount: () => {} };
   const view = compile(source + exposed, {
-    window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} },
+    window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} }, document: { getElementById: () => null },
     require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/stores/auth' ? { useAuthStore: () => ({ user: { role: 'student' } }) } : name === '@/api/student' ? { studentApi: api } : name === '@/student/workbench' ? helpers : name === '@/api/paper' ? { paperApi: { studentMistakes: async () => ({ items: [] }) } } : {},
   });
   return { ...view, api, allow: () => { consent = true; }, calls: () => listCalls };
@@ -43,6 +43,13 @@ test('a stale submitted flag cannot reopen an existing or review task for upload
     const h = setup(); await h.openSubmit(item);
     assert.equal(h.activeAssignmentId.value, null); assert.match(h.error.value, /原任务状态/);
   }
+});
+test('opening another assignment for submission clears feedback from the previous task', async () => {
+  const h = setup();
+  h.result.value = { total_score: 7, total_max_score: 10, results: [] };
+  await h.openSubmit({ id: 123, submitted: false, subject: 'math' });
+  assert.equal(h.activeAssignmentId.value, 123);
+  assert.equal(h.result.value, null);
 });
 test('identity transport failure does not falsely claim the student is unbound', async () => {
   const h = setup(); await h.loadWorkspace();

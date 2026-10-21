@@ -1,9 +1,25 @@
 <template>
   <div class="workbench">
-    <div class="work-area"><slot /></div>
-    <aside class="reminders" aria-label="学习提醒"><slot name="reminders" /></aside>
+    <div class="workbench-grid">
+      <aside class="study-navigation" aria-label="学生学习导航"><slot name="navigation" /></aside>
+      <div class="work-area"><slot /></div>
+      <aside class="reminders" aria-label="学习提醒"><slot name="reminders" /></aside>
+    </div>
   </div>
 </template>
 <style scoped>
-.workbench{display:grid;grid-template-columns:minmax(0,1fr) 256px;gap:22px;align-items:start;width:100%;max-width:1420px;margin:0 auto}.work-area{min-width:0}.reminders{display:grid;gap:16px;position:sticky;top:24px;min-width:0}@media(max-width:1150px){.workbench{grid-template-columns:minmax(0,1fr)}.reminders{position:static;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}}
+.workbench{container-type:inline-size;width:100%;min-width:0;margin:0 auto}
+.workbench-grid{display:grid;grid-template-columns:154px minmax(0,1fr) 210px;gap:18px;align-items:start}
+.study-navigation,.reminders{position:sticky;top:24px;min-width:0}
+.work-area{min-width:0;overflow-wrap:anywhere}
+.reminders{display:grid;gap:16px}
+@container(max-width:850px){
+  .workbench-grid{grid-template-columns:154px minmax(0,1fr)}
+  .reminders{position:static;grid-column:2;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+}
+@container(max-width:580px){
+  .workbench-grid{grid-template-columns:minmax(0,1fr);gap:16px}
+  .study-navigation{position:static}
+  .reminders{grid-column:1}
+}
 </style>
