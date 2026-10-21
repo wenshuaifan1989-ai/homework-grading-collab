@@ -20,7 +20,7 @@ export function isReview(status?: string | null): boolean {
 }
 export function assignmentGroup(item: StudentAssignment): Exclude<AssignmentFilter, 'all'> {
   if (isReview(item.task_status)) return 'review'
-  if (!item.submitted) return 'todo'
+  if (!item.submitted && !item.task_id) return 'todo'
   if (item.task_status === 'SUCCESS') return 'completed'
   if (['FAILED', 'CANCELLED', 'UNKNOWN_LAYOUT'].includes(item.task_status || '')) return 'attention'
   return 'processing'

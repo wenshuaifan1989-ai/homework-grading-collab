@@ -20,6 +20,7 @@ test('review remains unresolved even when a stale submitted flag is false', () =
   assert.equal(h.assignmentGroup(row('SUCCESS')), 'completed');
   assert.equal(h.assignmentGroup(row('FAILED')), 'attention');
   assert.equal(h.assignmentGroup(row('NEW_SERVER_STATE')), 'processing');
+  assert.equal(h.assignmentGroup({ ...row('PENDING', false), task_id: 'synthetic-existing' }), 'processing');
   assert.equal(h.taskLabel('NEW_SERVER_STATE'), '状态待确认');
 });
 test('all nontrusted question states hide aggregate scores, including a false zero', () => {

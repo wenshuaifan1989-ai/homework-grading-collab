@@ -15,7 +15,7 @@ function setup() {
   let listCalls = 0;
   const api = { getAssignments: async () => { listCalls++; return { data: { data: [] } }; }, getBinding: async () => { throw Error('synthetic offline'); } };
   const source = fs.readFileSync(path.join(__dirname, '../src/views/StudentWorkspaceView.vue'), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
-  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, summaryVisible };';
+  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, summaryVisible, openSubmit };';
   const vue = { ref: value => ({ value }), computed: get => ({ get value() { return get(); } }), nextTick: async () => {}, onMounted: () => {}, onBeforeUnmount: () => {} };
   const view = compile(source + exposed, {
     window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} },
@@ -33,6 +33,16 @@ test('cancelled refresh/navigation preserves photos and the selected assignment'
 test('in-flight submission blocks switching and shows a useful message', () => {
   const h = setup(); h.uploader.value = { hasDraft: true, busy: true }; h.allow();
   assert.equal(h.mayDiscard(), false); assert.match(h.error.value, /正在提交/);
+});
+test('a stale submitted flag cannot reopen an existing or review task for upload', async () => {
+  for (const item of [
+    { id: 123, submitted: false, task_status: 'WAIT_REVIEW' },
+    { id: 123, submitted: false, task_status: 'HOLD_REVIEW' },
+    { id: 123, submitted: false, task_id: 'synthetic-existing', task_status: 'PENDING' },
+  ]) {
+    const h = setup(); await h.openSubmit(item);
+    assert.equal(h.activeAssignmentId.value, null); assert.match(h.error.value, /原任务状态/);
+  }
 });
 test('identity transport failure does not falsely claim the student is unbound', async () => {
   const h = setup(); await h.loadWorkspace();

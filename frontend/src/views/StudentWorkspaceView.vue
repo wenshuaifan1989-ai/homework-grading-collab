@@ -263,7 +263,7 @@ async function openSubmit(item: StudentAssignment) {
     }
     if (!mayDiscard())
         return;
-    if (item.submitted && item.task_status !== 'UNKNOWN_LAYOUT') {
+    if ((item.submitted || item.task_id || isReview(item.task_status)) && item.task_status !== 'UNKNOWN_LAYOUT') {
         error.value = '这份作业已有提交，请查看原任务状态。';
         return;
     }
@@ -526,8 +526,8 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <p v-if="item.variant_mode && !item.variant_available" class="muted">{{ item.variant_message || '作业版本尚未就绪，请联系老师。' }}</p>
 <div class="card-actions">
 <button v-if="item.assignment_mode==='uniform_mixed'" class="secondary" @click="openPaper(item)">查看试卷 / 打印</button>
-<button v-if="!item.submitted || item.task_status==='UNKNOWN_LAYOUT'" :disabled="!!uploader?.busy || (item.variant_mode && !item.variant_available)" @click="openSubmit(item)">{{ item.task_status==='UNKNOWN_LAYOUT' ? '核对后重新拍照' : '拍照提交' }}</button>
-<button v-if="item.submitted && item.task_id" class="secondary" :disabled="resultBusy" @click="showResult(item.task_id)">{{ item.task_status==='SUCCESS' ? '查看批改反馈' : '查看处理进度' }}</button>
+<button v-if="assignmentGroup(item)==='todo' || item.task_status==='UNKNOWN_LAYOUT'" :disabled="!!uploader?.busy || (item.variant_mode && !item.variant_available)" @click="openSubmit(item)">{{ item.task_status==='UNKNOWN_LAYOUT' ? '核对后重新拍照' : '拍照提交' }}</button>
+<button v-if="item.task_id" class="secondary" :disabled="resultBusy" @click="showResult(item.task_id)">{{ item.task_status==='SUCCESS' ? '查看批改反馈' : '查看处理进度' }}</button>
 </div>
 </article>
 </div>
