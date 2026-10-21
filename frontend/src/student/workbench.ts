@@ -45,6 +45,17 @@ export function sortAssignments(items: StudentAssignment[]): StudentAssignment[]
   const order = { todo: 0, attention: 1, review: 2, processing: 3, completed: 4 }
   return [...items].sort((a, b) => order[assignmentGroup(a)] - order[assignmentGroup(b)] || (deadlineTimestamp(a.due_at) ?? Infinity) - (deadlineTimestamp(b.due_at) ?? Infinity))
 }
+// Reminder groups use only deadlines that carry an explicit timezone. A missing
+// or unzoned deadline remains visible on its assignment without invented urgency.
+export function assignmentReminders(items: StudentAssignment[], now: number) {
+  const pending = items.filter(item => assignmentGroup(item) === 'todo')
+  const byDeadline = (a: StudentAssignment, b: StudentAssignment) => (deadlineTimestamp(a.due_at) ?? Infinity) - (deadlineTimestamp(b.due_at) ?? Infinity)
+  return {
+    attention: items.filter(item => assignmentGroup(item) === 'attention' || (assignmentGroup(item) === 'todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now)).sort(byDeadline),
+    upcoming: pending.filter(item => { const deadline = deadlineTimestamp(item.due_at); return deadline !== null && deadline >= now }).sort(byDeadline),
+    review: items.filter(item => assignmentGroup(item) === 'review').sort(byDeadline),
+  }
+}
 export function questionLabel(result?: string | null): string {
   return ({ correct: '正确', partial: '部分正确，需订正', wrong: '需订正' } as Record<string, string>)[result || ''] || '等待老师核对'
 }

@@ -13,15 +13,16 @@ const helpers = compile(fs.readFileSync(path.join(__dirname, '../src/student/wor
 function setup() {
   let consent = false;
   let listCalls = 0;
+  const focused = [];
   const api = { getAssignments: async () => { listCalls++; return { data: { data: [] } }; }, getBinding: async () => { throw Error('synthetic offline'); } };
   const source = fs.readFileSync(path.join(__dirname, '../src/views/StudentWorkspaceView.vue'), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
-  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, summaryVisible, openSubmit };';
+  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, summaryVisible, openSubmit, locateAssignment, highlightedAssignmentId, subject, status, search };';
   const vue = { ref: value => ({ value }), computed: get => ({ get value() { return get(); } }), nextTick: async () => {}, onMounted: () => {}, onBeforeUnmount: () => {} };
   const view = compile(source + exposed, {
-    window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} }, document: { getElementById: () => null },
+    window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} }, document: { getElementById: id => ({ focus: () => focused.push(id), scrollIntoView: () => {} }) },
     require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/stores/auth' ? { useAuthStore: () => ({ user: { role: 'student' } }) } : name === '@/api/student' ? { studentApi: api } : name === '@/student/workbench' ? helpers : name === '@/api/paper' ? { paperApi: { studentMistakes: async () => ({ items: [] }) } } : {},
   });
-  return { ...view, api, allow: () => { consent = true; }, calls: () => listCalls };
+  return { ...view, api, focused, allow: () => { consent = true; }, calls: () => listCalls };
 }
 test('cancelled refresh/navigation preserves photos and the selected assignment', async () => {
   const h = setup(); h.uploader.value = { hasDraft: true, busy: false }; h.activeAssignmentId.value = 123;
@@ -74,4 +75,24 @@ test('cleared identity/result context ignores a late response', async () => {
   h.api.getStatus = () => new Promise(resolve => { finish = resolve; });
   const request = h.showResult('old-task'); h.clearResult(); finish({ data: { data: { status: 'WAIT_REVIEW' } } });
   await request; assert.equal(h.result.value, null); assert.equal(h.resultNotice.value, '');
+});
+test('reminder location clears conflicting filters, focuses the exact assignment and preserves queued photos', async () => {
+  const h = setup();
+  h.selectedStudentId.value = 456;
+  h.subject.value = 'english'; h.status.value = 'completed'; h.search.value = 'unrelated';
+  h.activeAssignmentId.value = 999; h.uploader.value = { hasDraft: true, busy: false };
+  await h.locateAssignment({ id: 123, subject: 'math', submitted: false });
+  assert.equal(h.subject.value, ''); assert.equal(h.status.value, 'all'); assert.equal(h.search.value, '');
+  assert.equal(h.highlightedAssignmentId.value, 123);
+  assert.deepEqual(h.focused, ['assignment-123']);
+  assert.equal(h.activeAssignmentId.value, 999);
+  assert.equal(h.uploader.value.hasDraft, true);
+  assert.equal(h.calls(), 0);
+});
+test('reminder navigation does not focus a previous student assignment after identity changes', async () => {
+  const h = setup(); h.selectedStudentId.value = 456;
+  const request = h.locateAssignment({ id: 123 });
+  h.selectedStudentId.value = 789;
+  await request;
+  assert.deepEqual(h.focused, []);
 });

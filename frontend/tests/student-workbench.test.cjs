@@ -57,3 +57,23 @@ test('display labels distinguish self report, teacher review and acceptance', ()
   assert.equal(h.mistakeLabel('mastered'), '老师已审核');
   assert.equal(h.mistakeLabel('new-status'), '状态待确认');
 });
+test('reminders distinguish overdue work, future deadlines and reviews without inventing urgency', () => {
+  const now = Date.parse('2026-10-21T10:00:00Z');
+  const items = [
+    { ...row(null, false), id: 1, due_at: '2026-10-21T17:00:00+08:00' },
+    { ...row(null, false), id: 2, due_at: '2026-10-21T18:00:00+08:00' },
+    { ...row(null, false), id: 3, due_at: '2026-10-22T18:00:00+08:00' },
+    { ...row(null, false), id: 4, due_at: '2020-01-01T18:00:00' },
+    { ...row(null, false), id: 5, due_at: null },
+    { ...row('WAIT_REVIEW'), id: 6, due_at: '2026-10-21T16:00:00+08:00' },
+    { ...row('FAILED'), id: 7, due_at: null },
+    { ...row('NEW_STATE'), id: 8, due_at: '2026-10-21T16:00:00+08:00' },
+    { ...row('SUCCESS'), id: 9, due_at: '2026-10-21T16:00:00+08:00' },
+  ];
+  const result = h.assignmentReminders(items, now);
+  assert.deepEqual(Array.from(result.attention, item => item.id), [1, 7]);
+  assert.deepEqual(Array.from(result.upcoming, item => item.id), [2, 3]);
+  assert.deepEqual(Array.from(result.review, item => item.id), [6]);
+  assert.equal(items[0].id, 1);
+  assert.equal(items[3].due_at, '2020-01-01T18:00:00');
+});
