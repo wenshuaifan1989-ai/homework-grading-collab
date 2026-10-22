@@ -24,7 +24,7 @@ function setup() {
   const module = { exports: {} };
   vm.runInNewContext(ts.transpileModule(source + exposed, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, {
     module, exports: module.exports, Set,
-    require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/api/paper' ? { paperApi } : name === '@/api/student' ? { studentApi: { getMyStudents: async () => ({ data: { data: [{ student_id: 92001, name: '合成学生', status: 'active' }] } }) } } : {},
+    require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/stores/auth' ? { useAuthStore: () => ({ user: { role: 'student' } }) } : name === '@/api/paper' ? { paperApi } : name === '@/api/student' ? { studentApi: { getMyStudents: async () => ({ data: { data: [{ student_id: 92001, name: '合成学生', status: 'active' }] } }) } } : {},
   });
   return { ...module.exports, paperApi, calls: () => calls };
 }

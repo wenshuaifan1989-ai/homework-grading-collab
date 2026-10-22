@@ -5,8 +5,12 @@ import { paperApi, type MistakeItem } from '@/api/paper';
 import { studentApi, type LinkedStudent } from '@/api/student';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
 import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
+import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
+import { useAuthStore } from '@/stores/auth';
+import type { ProfileMetric } from '@/student/profile';
 import { mistakeLabel, subjectLabel, trustedQuestion } from '@/student/workbench';
 const students = ref<LinkedStudent[]>([]);
+const auth = useAuthStore();
 const studentId = ref<number | null>(null);
 const mistakes = ref<MistakeItem[]>([]);
 const subject = ref('');
@@ -42,6 +46,12 @@ const pendingCount = computed(() => mistakes.value.filter(item => ['open', 'pend
 const reviewCount = computed(() => mistakes.value.filter(item => item.status === 'correction_submitted').length);
 const doneCount = computed(() => mistakes.value.filter(item => item.status === 'mastered').length);
 const hasFilters = computed(() => !!subject.value || !!knowledge.value || !!dateFilter.value || state.value !== 'all');
+const selectedStudent = computed(() => students.value.find(item => item.student_id === studentId.value));
+const profileMetrics = computed<ProfileMetric[]>(() => selectedStudent.value ? [
+    { label: '待订正错题', value: mistakesLoaded.value ? pendingCount.value : null, unit: '题' },
+    { label: '待老师审核', value: mistakesLoaded.value ? reviewCount.value : null, unit: '题' },
+    { label: '老师已审核', value: mistakesLoaded.value ? doneCount.value : null, unit: '题' },
+] : []);
 function clearFilters() { subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'all'; }
 function apiError(err: any, fallback: string) { return err?.response?.data?.detail || err?.response?.data?.message || fallback; }
 function hasDraft() { return Object.values(drafts.value).some(value => value.trim()); }
@@ -171,10 +181,13 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 <p class="muted">回看原题与本人作答，订正后查看老师审核记录。</p>
 </div>
 <div class="header-controls">
+<div class="page-account-actions">
 <label class="identity-picker">学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
 <option value="">选择已绑定学生</option>
 <option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}</option>
 </select></label>
+<StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="busyId!==null" />
+</div>
 <router-link to="/student">返回我的作业 →</router-link>
 </div>
 </header>
@@ -308,6 +321,8 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 .header-controls{display:grid;gap:9px;min-width:160px}
 .header-controls>a{color:#456c54;text-decoration:none;font-size:12px;text-align:right}
 .identity-picker{display:grid;gap:7px;font-size:12px;color:#6b806e}
+.page-account-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.page-account-actions .identity-picker{min-width:160px;flex:1}
 .muted{font-size:13px;line-height:1.8;color:#7a8e7e}
 .panel,.reminder-card{border:1px solid #e0e8df;border-radius:14px;background:#fff;padding:20px;margin-bottom:18px;min-width:0}
 .reminder-card{margin:0}

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-defineProps<{ canInvite: boolean; busy: boolean; inviteCode: string }>()
+defineProps<{ canInvite: boolean; busy: boolean; inviteCode: string; embedded?: boolean }>()
 const code = defineModel<string>('code', { required: true })
 const relationship = defineModel<string>('relationship', { required: true })
 defineEmits<{ create: []; claim: [] }>()
 </script>
 <template>
-  <details class="family-panel">
-    <summary>家庭关联</summary>
+  <component :is="embedded ? 'section' : 'details'" class="family-panel" :class="{ embedded }">
+    <summary v-if="!embedded">家庭关联</summary>
     <p>只向实际家庭成员提供一次性关系码。</p>
     <div v-if="canInvite" class="family-fields">
       <button type="button" :disabled="busy" @click="$emit('create')">生成家庭成员邀请</button>
@@ -21,10 +21,11 @@ defineEmits<{ create: []; claim: [] }>()
       </select></label>
       <button type="submit" :disabled="busy || !code.trim()">确认家庭关联</button>
     </form>
-  </details>
+  </component>
 </template>
 <style scoped>
 .family-panel{margin-top:12px;border:1px solid #dde6db;padding:11px;border-radius:10px;background:#fafcf8;font-size:12px;color:#63806a;min-width:0}
+.family-panel.embedded{margin:0;padding:0;border:0;background:transparent}
 summary{cursor:pointer;line-height:1.8}
 p{font-size:11px;color:#7b8b80;line-height:1.8}
 .family-fields{display:grid;gap:10px;margin-top:12px;min-width:0}

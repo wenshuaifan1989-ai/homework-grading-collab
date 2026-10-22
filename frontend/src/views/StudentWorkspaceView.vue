@@ -9,6 +9,8 @@ import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
 import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
 import StudentFamilyConnection from '@/components/student/StudentFamilyConnection.vue';
+import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
+import type { ProfileMetric } from '@/student/profile';
 import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
 const auth = useAuthStore();
 const students = ref<LinkedStudent[]>([]);
@@ -33,6 +35,8 @@ const familyCode = ref('');
 const familyRelationship = ref('father');
 const familyInviteCode = ref('');
 const familyBusy = ref(false);
+const familyNotice = ref('');
+const familyError = ref('');
 const error = ref('');
 const notice = ref('');
 const inviteCode = ref('');
@@ -83,6 +87,11 @@ const reminders = computed(() => assignmentReminders(effectiveAssignments.value,
 const openMistakes = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)));
 const headingDate = computed(() => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now.value)));
 const summaryVisible = computed(() => !!result.value && trustedSummary(result.value));
+const profileMetrics = computed<ProfileMetric[]>(() => selectedStudent.value ? [
+    { label: '待提交作业', value: assignmentsLoaded.value ? todos.value.length : null, unit: '份' },
+    { label: '待老师复核', value: assignmentsLoaded.value ? reviews.value.length : null, unit: '份' },
+    { label: '待订正错题', value: !loadingMistakes.value && !mistakeError.value && !loading.value ? openMistakes.value.length : null, unit: '题' },
+] : []);
 function clearFilters() { subject.value = ''; status.value = 'all'; search.value = ''; }
 async function locateAssignment(item: StudentAssignment) {
     const studentId = selectedStudentId.value;
@@ -215,6 +224,7 @@ async function changeStudent(event: Event) {
     highlightedAssignmentId.value = null;
     submissionAssignment.value = null;
     observedTaskStates.value = {};
+    familyInviteCode.value = ''; familyCode.value = ''; familyNotice.value = ''; familyError.value = '';
     assignments.value = [];
     assignmentsLoaded.value = false;
     mistakes.value = [];
@@ -237,11 +247,20 @@ async function createFamilyInvite() {
         return;
     familyBusy.value = true;
     error.value = '';
+    familyError.value = ''; familyNotice.value = '';
+    const studentId = selectedStudentId.value;
     try {
-        familyInviteCode.value = (await studentApi.createFamilyInvite(selectedStudentId.value)).data.data.code;
+        const response = await studentApi.createFamilyInvite(studentId);
+        if (selectedStudentId.value === studentId) {
+            familyInviteCode.value = response.data.data.code;
+            familyNotice.value = '家庭成员邀请已生成。';
+        }
     }
     catch (err: any) {
-        error.value = apiError(err, '家庭邀请暂时无法生成。');
+        if (selectedStudentId.value === studentId) {
+            error.value = apiError(err, '家庭邀请暂时无法生成。');
+            familyError.value = error.value;
+        }
     }
     finally {
         familyBusy.value = false;
@@ -252,17 +271,21 @@ async function claimFamilyInvite() {
         return;
     familyBusy.value = true;
     error.value = '';
+    familyError.value = ''; familyNotice.value = '';
     activeAssignmentId.value = null;
     clearResult();
     try {
         await studentApi.claimFamilyInvite(familyCode.value.trim(), familyRelationship.value);
         familyCode.value = '';
+        familyInviteCode.value = '';
         await auth.refreshIdentity();
         await loadWorkspace();
         notice.value = '家庭关系已建立。';
+        familyNotice.value = notice.value;
     }
     catch (err: any) {
         error.value = apiError(err, '家庭关联失败，请核对邀请码。');
+        familyError.value = error.value;
     }
     finally {
         familyBusy.value = false;
@@ -492,11 +515,19 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <h1>我的作业<span>{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '查看作业、完成练习、记录进步' }}</span>
 </h1>
 </div>
+<div class="page-account-actions">
 <label v-if="students.length" class="identity-picker">当前学生<select :value="selectedStudentId || ''" :disabled="uploader?.busy" @change="changeStudent">
 <option value="">请选择本人身份</option>
 <option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}{{ item.relationship_label ? `（${item.relationship_label}）` : '' }}</option>
 </select>
 </label>
+<StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="uploader?.busy">
+<template #family>
+<p v-if="familyError" class="notice error" role="alert">{{ familyError }}</p><p v-if="familyNotice" class="notice success" role="status">{{ familyNotice }}</p>
+<StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" embedded @create="createFamilyInvite" @claim="claimFamilyInvite" />
+</template>
+</StudentProfilePanel>
+</div>
 </header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
 <p v-if="notice" id="submission-receipt" class="notice success" role="status">{{ notice }}</p>
@@ -523,7 +554,6 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
     <StudentWorkbench v-else>
       <template #navigation>
         <StudentStudyNavigation v-model="subject" page="assignments" :subjects="subjects" :counts="subjectCounts" />
-        <StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" @create="createFamilyInvite" @claim="claimFamilyInvite" />
       </template>
       <section class="panel assignments-panel" aria-labelledby="assignments-heading">
         <div class="section-heading">
@@ -685,6 +715,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 .page-header h1{font-size:28px;margin:0;letter-spacing:-.04em}
 .page-header h1 span{display:block;margin-top:8px;font-size:13px;font-weight:400;letter-spacing:0;color:#7b8a80}
 .identity-picker{font-size:12px;display:grid;gap:8px;min-width:160px}
+.page-account-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
 .panel,.reminder-card{background:#fff;border:1px solid #e1e8e1;border-radius:14px;padding:20px;min-width:0}
 .panel{margin-bottom:20px}
 .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -783,6 +814,8 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 @container(max-width:650px){.page-header{align-items:start;flex-direction:column;gap:12px}
 .page-header h1{font-size:26px}
 .identity-picker{width:100%}
+.page-account-actions{width:100%}
+.page-account-actions .identity-picker{flex:1;min-width:min(160px,100%)}
 .panel{padding:17px}
 .score{flex-wrap:wrap;gap:12px}
 }

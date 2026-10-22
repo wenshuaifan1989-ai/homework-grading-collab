@@ -16,7 +16,7 @@ function setup() {
   const focused = [];
   const api = { getAssignments: async () => { listCalls++; return { data: { data: [] } }; }, getBinding: async () => { throw Error('synthetic offline'); } };
   const source = fs.readFileSync(path.join(__dirname, '../src/views/StudentWorkspaceView.vue'), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
-  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, activeAssignment, submissionAssignment, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, resultError, summaryVisible, openSubmit, closeSubmission, onSubmitted, notice, locateAssignment, highlightedAssignmentId, subject, status, search, effectiveAssignments, visibleAssignments, todos, reviews, reminders };';
+  const exposed = '\nexport { mayDiscard, refreshAssignments, loadWorkspace, bindingRequired, error, uploader, activeAssignmentId, activeAssignment, submissionAssignment, assignments, selectedStudentId, showResult, clearResult, result, resultNotice, resultError, summaryVisible, openSubmit, closeSubmission, onSubmitted, notice, locateAssignment, highlightedAssignmentId, subject, status, search, effectiveAssignments, visibleAssignments, todos, reviews, reminders, createFamilyInvite, changeStudent, familyInviteCode, familyCode, familyNotice, familyError };';
   const vue = { ref: value => ({ value }), computed: get => ({ get value() { return get(); } }), nextTick: async () => {}, onMounted: () => {}, onBeforeUnmount: () => {} };
   const view = compile(source + exposed, {
     window: { confirm: () => consent }, URL: { revokeObjectURL: () => {} }, document: { getElementById: id => ({ focus: () => focused.push(id), scrollIntoView: () => {} }) },
@@ -233,4 +233,13 @@ test('a missing status is shown as unconfirmed instead of an unsubmitted task', 
   await h.showResult('synthetic-task');
   assert.match(h.resultNotice.value, /状态待确认/); assert.doesNotMatch(h.resultNotice.value, /待提交/);
   assert.equal(helpers.assignmentGroup(h.effectiveAssignments.value[0]), 'processing');
+});
+test('family invitation data is cleared on identity switch and a late response is ignored', async () => {
+  const h = setup(); h.selectedStudentId.value = 456; let finish;
+  h.familyInviteCode.value = 'test-old-invite'; h.familyCode.value = 'test-typed-code';
+  h.api.createFamilyInvite = () => new Promise(resolve => { finish = resolve; });
+  const pending = h.createFamilyInvite();
+  await h.changeStudent({ target: { value: '789' } });
+  finish({ data: { data: { code: 'test-late-old-invite' } } }); await pending;
+  assert.equal(h.familyInviteCode.value, ''); assert.equal(h.familyCode.value, ''); assert.equal(h.familyNotice.value, '');
 });
