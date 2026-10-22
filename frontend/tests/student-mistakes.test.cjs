@@ -19,14 +19,15 @@ function setup() {
     submitCorrection: async (id, answer) => { assert.equal(answer, '合成订正过程'); items.find(item => item.id === id).status = 'correction_submitted'; },
   };
   const vue = { ref: value => ({ value }), computed: get => ({ get value() { return get(); } }), onMounted: () => {}, onBeforeUnmount: () => {} };
+  const studentApi = { getBinding: async () => ({ data: { data: { is_bound: true, student_id: 92001, class_id: 93001, student_no: 'SYN-001' } } }), getMyStudents: async () => ({ data: { data: [{ student_id: 92001, name: '合成学生', status: 'active', classes: [{ class_id: 93001, class_name: '合成班级', status: 'active' }] }] } }) };
   const source = fs.readFileSync(path.join(__dirname, '../src/views/StudentMistakesView.vue'), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
-  const exposed = '\nexport { loadStudents, clearFilters, visibleMistakes, pendingCount, reviewCount, doneCount, subject, state, knowledge, dateFilter, drafts, selected, history, hasFilters, submitCorrection, notice, error };';
+  const exposed = '\nexport { loadStudents, binding, clearFilters, visibleMistakes, pendingCount, reviewCount, doneCount, subject, state, knowledge, dateFilter, drafts, selected, history, hasFilters, submitCorrection, notice, error };';
   const module = { exports: {} };
   vm.runInNewContext(ts.transpileModule(source + exposed, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, {
     module, exports: module.exports, Set,
-    require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/stores/auth' ? { useAuthStore: () => ({ user: { role: 'student' } }) } : name === '@/api/paper' ? { paperApi } : name === '@/api/student' ? { studentApi: { getMyStudents: async () => ({ data: { data: [{ student_id: 92001, name: '合成学生', status: 'active' }] } }) } } : {},
+    require: name => name === 'vue' ? vue : name === 'vue-router' ? { onBeforeRouteLeave: () => {} } : name === '@/stores/auth' ? { useAuthStore: () => ({ user: { role: 'student' } }) } : name === '@/api/paper' ? { paperApi } : name === '@/api/student' ? { studentApi } : {},
   });
-  return { ...module.exports, paperApi, calls: () => calls };
+  return { ...module.exports, paperApi, studentApi, calls: () => calls };
 }
 
 test('mistakes start with actionable corrections while review and self reports stay distinct', async () => {
@@ -37,6 +38,12 @@ test('mistakes start with actionable corrections while review and self reports s
   h.state.value = 'review'; assert.deepEqual(Array.from(h.visibleMistakes.value, item => item.id), [3]);
   h.state.value = 'done'; assert.deepEqual(Array.from(h.visibleMistakes.value, item => item.id), [4]);
   h.state.value = 'all'; assert.equal(h.visibleMistakes.value.length, 5);
+});
+
+test('an unavailable school number leaves authorized mistakes accessible', async () => {
+  const h = setup(); h.studentApi.getBinding = async () => { throw Error('synthetic unavailable'); };
+  await h.loadStudents();
+  assert.equal(h.binding.value, null); assert.equal(h.pendingCount.value, 2); assert.equal(h.error.value, '');
 });
 
 test('clearing conflicting mistake filters reveals all items without discarding drafts or review selections', async () => {

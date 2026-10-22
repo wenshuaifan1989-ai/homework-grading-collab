@@ -2,15 +2,16 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { paperApi, type MistakeItem } from '@/api/paper';
-import { studentApi, type LinkedStudent } from '@/api/student';
+import { studentApi, type LinkedStudent, type StudentBinding } from '@/api/student';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
 import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
 import { useAuthStore } from '@/stores/auth';
-import type { ProfileMetric } from '@/student/profile';
+import { studentIdentityLabel, type ProfileMetric } from '@/student/profile';
 import { mistakeLabel, subjectLabel, trustedQuestion } from '@/student/workbench';
 const students = ref<LinkedStudent[]>([]);
 const auth = useAuthStore();
+const binding = ref<StudentBinding | null>(null);
 const studentId = ref<number | null>(null);
 const mistakes = ref<MistakeItem[]>([]);
 const subject = ref('');
@@ -66,6 +67,11 @@ function beforeUnload(event: BeforeUnloadEvent) { if (hasDraft() || busyId.value
 } }
 function clearEvidence() { Object.values(evidence.value).forEach(url => URL.revokeObjectURL(url)); evidence.value = {}; imageKind.value = {}; }
 async function loadStudents() { loading.value = true; error.value = ''; try {
+    binding.value = null;
+    // A missing number must not block access to already authorized learning records.
+    if (auth.user?.role === 'student') {
+        try { binding.value = (await studentApi.getBinding()).data.data; } catch { /* Keep the identity label unconfirmed. */ }
+    }
     students.value = ((await studentApi.getMyStudents()).data.data || []).filter(item => item.status === 'active');
     studentId.value = students.value.length === 1 ? students.value[0].student_id : null;
     if (studentId.value)
@@ -184,7 +190,7 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 <div class="page-account-actions">
 <label class="identity-picker">学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
 <option value="">选择已绑定学生</option>
-<option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}</option>
+<option v-for="(item, index) in students" :key="item.student_id" :value="item.student_id">{{ studentIdentityLabel(item, binding, index) }}</option>
 </select></label>
 <StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="busyId!==null" />
 </div>

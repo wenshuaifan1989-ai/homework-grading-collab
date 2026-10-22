@@ -15,15 +15,16 @@ export function maskedEmail(value?: string | null): string {
   const parts = text.split('@')
   return parts.length === 2 && parts[0] && parts[1] ? `${parts[0][0]}***@${parts[1]}` : '已提供（已隐藏）'
 }
-export function accountName(value?: string | null): string {
-  if (!value?.trim()) return '当前资料未提供'
-  if (value.includes('@')) return maskedEmail(value)
-  return /^\+?[\d\s()-]{7,}$/.test(value.trim()) ? maskedPhone(value) : value.trim()
-}
 export function relationshipLabel(student?: LinkedStudent | null): string {
   if (!student) return '尚未选择学习身份'
   const names: Record<string, string> = { self: '本人', father: '父亲', mother: '母亲', guardian: '监护人', paternal_grandfather: '祖父', paternal_grandmother: '祖母', maternal_grandfather: '外祖父', maternal_grandmother: '外祖母', other: '家庭成员' }
-  return student.relationship_label?.trim() || names[student.relationship_type] || '关联关系待确认'
+  return names[student.relationship_type] || '关联关系待确认'
+}
+// The fallback distinguishes choices on this page; it is not a student sequence.
+export function studentIdentityLabel(student: LinkedStudent, binding: StudentBinding | null, index: number): string {
+  const { studentNo } = profileBinding(student, binding, 'ready')
+  const classroom = (student.classes || []).filter(item => item.status === 'active').map(item => item.class_name).join(' / ')
+  return [studentNo ? `学号 ${studentNo}` : `关联身份 ${index + 1}（学号待提供）`, classroom, relationshipLabel(student)].filter(Boolean).join(' · ')
 }
 export function profileBinding(student: LinkedStudent | null | undefined, binding: StudentBinding | null, state: ProfileBindingState) {
   const empty = { studentNo: null as string | null, className: null as string | null }

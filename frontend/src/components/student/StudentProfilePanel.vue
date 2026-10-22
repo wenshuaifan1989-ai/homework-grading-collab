@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { User } from '@/api/auth'
 import { studentApi, type LinkedStudent, type StudentBinding } from '@/api/student'
-import { accountName, maskedEmail, maskedPhone, profileBinding, relationshipLabel, type ProfileBindingState, type ProfileMetric } from '@/student/profile'
+import { maskedEmail, maskedPhone, profileBinding, relationshipLabel, type ProfileBindingState, type ProfileMetric } from '@/student/profile'
 
 const props = defineProps<{ account: User | null; student?: LinkedStudent | null; metrics: ProfileMetric[]; disabled?: boolean }>()
 const dialog = ref<HTMLDialogElement | null>(null)
@@ -52,8 +52,8 @@ onBeforeUnmount(() => { requestSerial++; dialog.value?.close() })
         <button type="button" class="profile-close" @click="closeProfile">关闭个人信息</button>
       </header>
       <section class="profile-person" aria-label="当前学习身份">
-        <span class="profile-avatar" aria-hidden="true">{{ student?.name?.slice(0, 1) || '我' }}</span>
-        <div><h3>{{ student?.name || '尚未选择学习身份' }}</h3><p>{{ classes.map(item => item.class_name).join(' · ') || '请先选择学生身份或核对班级资料' }}</p></div>
+        <span class="profile-avatar" aria-hidden="true">学</span>
+        <div><h3>{{ student ? (identity.studentNo ? `学号 ${identity.studentNo}` : '我的学习身份') : '尚未选择学习身份' }}</h3><p>{{ classes.map(item => item.class_name).join(' · ') || '请先选择学生身份或核对班级资料' }}</p></div>
         <span class="relationship-badge">{{ relationshipLabel(student) }}</span>
       </section>
       <nav class="profile-tabs" aria-label="个人信息分类">
@@ -61,14 +61,14 @@ onBeforeUnmount(() => { requestSerial++; dialog.value?.close() })
       </nav>
       <div class="profile-content" :class="{ overview: tab==='overview' }">
         <template v-if="tab==='overview'">
-          <section class="profile-section" aria-labelledby="profile-account-heading">
-            <h3 id="profile-account-heading">登录账户</h3><p class="profile-note">账户资料与上方选择的学生身份分别展示。</p>
+          <section class="profile-section" aria-labelledby="profile-identity-heading">
+            <h3 id="profile-identity-heading">身份资料</h3><p class="profile-note">以学号和学生序号识别学习身份。</p>
             <dl class="profile-fields">
-              <div><dt>登录账号</dt><dd>{{ accountName(account?.username) }}</dd></div>
-              <div><dt>账户姓名</dt><dd>{{ account?.full_name?.trim() || '当前资料未提供' }}</dd></div>
-              <div><dt>手机号（已脱敏）</dt><dd>{{ maskedPhone(account?.phone) }}</dd></div>
-              <div><dt>邮箱（已脱敏）</dt><dd>{{ maskedEmail(account?.email) }}</dd></div>
+              <div><dt>学号</dt><dd>{{ identity.studentNo || '当前资料未提供可核对的学号' }}</dd></div>
+              <div><dt>学生序号</dt><dd>待提供</dd></div>
+              <div><dt>所属班级</dt><dd>{{ classes.map(item => item.class_name).join(' · ') || '当前资料未提供' }}</dd></div>
             </dl>
+            <p class="profile-note">学生序号由老师分配，是与学号分开的固定编号。当前资料尚未提供。</p>
           </section>
           <section class="profile-section" aria-labelledby="profile-study-heading">
             <h3 id="profile-study-heading">学习概况</h3><p class="profile-note">当前身份在本页面已加载的学习记录。</p>
@@ -78,18 +78,27 @@ onBeforeUnmount(() => { requestSerial++; dialog.value?.close() })
             <p v-else class="profile-note">选择学习身份后可查看概况。</p>
             <p class="profile-note">待老师复核的作业仍在处理中，复核前不显示分数。</p>
           </section>
+          <section class="profile-section profile-contact-section" aria-labelledby="profile-account-heading">
+            <h3 id="profile-account-heading">登录与联系方式</h3><p class="profile-note">联系方式属于当前登录账户。</p>
+            <dl class="profile-fields">
+              <div><dt>登录状态</dt><dd>{{ account ? '已登录' : '登录资料待确认' }}</dd></div>
+              <div><dt>手机号（已脱敏）</dt><dd>{{ maskedPhone(account?.phone) }}</dd></div>
+              <div><dt>邮箱（已脱敏）</dt><dd>{{ maskedEmail(account?.email) }}</dd></div>
+            </dl>
+          </section>
         </template>
         <section v-else-if="tab==='classroom'" class="profile-section" aria-labelledby="profile-class-heading">
-          <h3 id="profile-class-heading">班级与学号</h3>
+          <h3 id="profile-class-heading">班级与编号</h3>
           <p class="profile-note" :role="bindingState==='error' ? 'alert' : 'status'">{{ identity.message }}</p>
           <button v-if="student && account?.role==='student' && bindingState!=='loading'" type="button" class="profile-text-button" @click="loadBinding">重新核对绑定资料</button>
           <dl class="profile-fields">
-            <div><dt>学生姓名</dt><dd>{{ student?.name || '尚未选择' }}</dd></div>
             <div><dt>学号</dt><dd>{{ identity.studentNo || '当前资料未提供可核对的学号' }}</dd></div>
+            <div><dt>学生序号</dt><dd>待提供</dd></div>
+            <div><dt>所属班级</dt><dd>{{ classes.map(item => item.class_name).join(' · ') || '当前资料未提供' }}</dd></div>
             <div v-if="identity.className"><dt>学号所属班级</dt><dd>{{ identity.className }}</dd></div>
           </dl>
           <h4>关联班级</h4><ul v-if="classes.length" class="class-list"><li v-for="item in classes" :key="item.class_id"><span>{{ item.class_name }}</span><small>在班</small></li></ul><p v-else class="profile-note">当前没有可展示的在班记录。</p>
-          <p class="profile-note">姓名、班级或学号有误，请联系老师核对名册。</p>
+          <p class="profile-note">学生序号是老师分配的独立固定编号，当前资料尚未提供。班级、学号或学生序号有误，请联系老师核对。</p>
         </section>
         <section v-else-if="tab==='family'" class="profile-section" aria-labelledby="profile-family-heading">
           <h3 id="profile-family-heading">家庭关联</h3><p class="profile-note">当前账户与所选学生的关系：{{ relationshipLabel(student) }}。</p>
@@ -97,7 +106,7 @@ onBeforeUnmount(() => { requestSerial++; dialog.value?.close() })
         </section>
         <section v-else class="profile-section profile-help" aria-labelledby="profile-help-heading">
           <h3 id="profile-help-heading">使用帮助</h3>
-          <details open><summary>如何更正个人资料？</summary><p>姓名、班级和学号由老师核对名册。登录账户的联系方式需要更正时，请联系管理员。</p></details>
+          <details open><summary>如何更正个人资料？</summary><p>班级、学号和学生序号由老师核对。学号与学生序号是两个独立编号；学生页面不展示姓名。登录账户的联系方式需要更正时，请联系管理员。</p></details>
           <details><summary>怎样提交整份作业？</summary><p>从指定作业进入拍照提交，连续添加1–9张照片，检查页码顺序后一次提交。保留任务回执，等待老师复核时无需重复提交。</p></details>
           <details><summary>订正和自评掌握有什么区别？</summary><p>订正提交后等待老师审核。自评掌握只记录本人的学习判断，老师审核结果会单独保留。</p></details>
           <p class="profile-note">共用设备使用完毕后，请通过系统菜单退出登录。</p>
@@ -149,6 +158,6 @@ onBeforeUnmount(() => { requestSerial++; dialog.value?.close() })
 .profile-help details{padding:12px 0;border-bottom:1px solid #e7ede7;line-height:1.8;font-size:13px}
 .profile-help summary{cursor:pointer}
 .profile-help details p{font-size:12px;color:#728678;margin:8px 0 0}
-@media(min-width:700px){.profile-content.overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.overview .profile-section{margin-bottom:0}.overview .profile-fields{grid-template-columns:minmax(0,1fr);gap:12px}.overview .profile-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+@media(min-width:700px){.profile-content.overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.overview .profile-section{margin-bottom:0}.overview .profile-fields{grid-template-columns:minmax(0,1fr);gap:12px}.overview .profile-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.overview .profile-contact-section{grid-column:1/-1}.overview .profile-contact-section .profile-fields{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.profile-dialog{padding:17px}.profile-fields{grid-template-columns:minmax(0,1fr)}.profile-person{padding:14px}.relationship-badge{margin-left:0}.profile-tabs{gap:8px}.profile-section{padding:15px}}
 </style>

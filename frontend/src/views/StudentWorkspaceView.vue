@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { studentApi, type LinkedStudent, type RosterOption, type StudentAssignment, type StudentBinding } from '@/api/student';
+import { studentApi, type LinkedStudent, type StudentAssignment, type StudentBinding } from '@/api/student';
 import { paperApi, type MistakeItem } from '@/api/paper';
 import type { GradingResultResponse } from '@/api/homework';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
@@ -10,7 +10,7 @@ import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.
 import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
 import StudentFamilyConnection from '@/components/student/StudentFamilyConnection.vue';
 import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
-import type { ProfileMetric } from '@/student/profile';
+import { studentIdentityLabel, type ProfileMetric } from '@/student/profile';
 import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
 const auth = useAuthStore();
 const students = ref<LinkedStudent[]>([]);
@@ -39,11 +39,6 @@ const familyNotice = ref('');
 const familyError = ref('');
 const error = ref('');
 const notice = ref('');
-const inviteCode = ref('');
-const studentName = ref('');
-const rosterOptions = ref<RosterOption[]>([]);
-const selectedRosterId = ref<number | null>(null);
-const bindingBusy = ref(false);
 const activeAssignmentId = ref<number | null>(null);
 const submissionAssignment = ref<StudentAssignment | null>(null);
 const uploader = ref<{
@@ -291,48 +286,6 @@ async function claimFamilyInvite() {
         familyBusy.value = false;
     }
 }
-async function findRoster() {
-    error.value = '';
-    notice.value = '';
-    rosterOptions.value = [];
-    selectedRosterId.value = null;
-    if (!inviteCode.value.trim() || !studentName.value.trim()) {
-        error.value = '请填写班级邀请码和学生姓名。';
-        return;
-    }
-    bindingBusy.value = true;
-    try {
-        rosterOptions.value = (await studentApi.getBindingOptions(inviteCode.value.trim(), studentName.value.trim())).data.data.students || [];
-        if (rosterOptions.value.length === 1)
-            selectedRosterId.value = rosterOptions.value[0].id;
-        if (!rosterOptions.value.length)
-            notice.value = '没有找到可绑定的本人名册，请核对信息或联系老师。';
-    }
-    catch (err: any) {
-        error.value = apiError(err, '名册查询失败。');
-    }
-    finally {
-        bindingBusy.value = false;
-    }
-}
-async function bindStudent() {
-    if (!selectedRosterId.value || bindingBusy.value)
-        return;
-    bindingBusy.value = true;
-    error.value = '';
-    try {
-        await studentApi.bind(inviteCode.value.trim(), studentName.value.trim(), selectedRosterId.value);
-        await auth.refreshIdentity();
-        await loadWorkspace();
-        notice.value = '班级身份已绑定。';
-    }
-    catch (err: any) {
-        error.value = apiError(err, '绑定失败，请核对本人名册。');
-    }
-    finally {
-        bindingBusy.value = false;
-    }
-}
 async function openSubmit(item: StudentAssignment) {
     if (activeAssignmentId.value === item.id) {
         await nextTick();
@@ -518,7 +471,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <div class="page-account-actions">
 <label v-if="students.length" class="identity-picker">当前学生<select :value="selectedStudentId || ''" :disabled="uploader?.busy" @change="changeStudent">
 <option value="">请选择本人身份</option>
-<option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}{{ item.relationship_label ? `（${item.relationship_label}）` : '' }}</option>
+<option v-for="(item, index) in students" :key="item.student_id" :value="item.student_id">{{ studentIdentityLabel(item, binding, index) }}</option>
 </select>
 </label>
 <StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="uploader?.busy">
@@ -533,22 +486,10 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <p v-if="notice" id="submission-receipt" class="notice success" role="status">{{ notice }}</p>
     <section v-if="bindingRequired" class="panel binding-panel">
 <p class="eyebrow">开始学习之前</p>
-<h2>找到你的班级身份</h2>
-<p>填写老师提供的邀请码和本人姓名。查询后，请确认选择的是你本人。</p>
-<div class="binding-fields">
-<label>班级邀请码<input v-model="inviteCode" autocomplete="off" maxlength="12" />
-</label>
-<label>学生姓名<input v-model="studentName" autocomplete="name" maxlength="100" />
-</label>
-<button :disabled="bindingBusy" @click="findRoster">{{ bindingBusy ? '查询中…' : '查询本人名册' }}</button>
-</div>
-<fieldset v-if="rosterOptions.length">
-<legend>确认本人名册</legend>
-<label v-for="item in rosterOptions" :key="item.id">
-<input v-model="selectedRosterId" type="radio" :value="item.id" />{{ item.student_name }}<span v-if="item.student_no"> · 学号 {{ item.student_no }}</span>
-</label>
-<button :disabled="!selectedRosterId || bindingBusy" @click="bindStudent">确认绑定</button>
-</fieldset>
+<h2>班级身份待开通</h2>
+<p>请联系老师核对所属班级、学号和学生序号，开通你的学习身份。</p>
+<p>学生序号是老师分配的独立固定编号，与学号不同。已获得家庭关系码的账户可继续完成家庭关联。</p>
+<button type="button" :disabled="loading" @click="loadWorkspace">重新核对身份</button>
 <StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" @create="createFamilyInvite" @claim="claimFamilyInvite" />
 </section>
     <StudentWorkbench v-else>

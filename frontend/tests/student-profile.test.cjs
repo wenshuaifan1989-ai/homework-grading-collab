@@ -23,16 +23,48 @@ function setup() {
   return { ...view, props, api };
 }
 
-test('profile contacts are masked, including accounts that use a phone or email as username', () => {
+test('profile contacts are masked', () => {
   assert.equal(helpers.maskedPhone('+1 (202) 555-0100'), '120****0100');
   assert.equal(helpers.maskedPhone('555-0100'), '5****00');
   assert.equal(helpers.maskedPhone('123'), '已提供（已隐藏）');
   assert.equal(helpers.maskedEmail('student@example.invalid'), 's***@example.invalid');
-  assert.equal(helpers.accountName('student@example.invalid'), 's***@example.invalid');
-  assert.equal(helpers.accountName('+1 (202) 555-0100'), '120****0100');
-  assert.equal(helpers.accountName('synthetic_student'), 'synthetic_student');
   assert.equal(helpers.maskedPhone(null), '当前资料未提供');
   assert.equal(helpers.maskedEmail('invalid'), '已提供（已隐藏）');
+});
+
+test('identity choices use a verified school number and never a name or custom relationship text', () => {
+  const value = { ...student(), relationship_label: '合成姓名的家人' };
+  const label = helpers.studentIdentityLabel(value, bound(), 0);
+  assert.equal(label, '学号 SYN-001 · 合成班级 · 本人');
+  assert.doesNotMatch(label, /合成学生|合成姓名|92001|94001/);
+  const unverified = helpers.studentIdentityLabel(value, { ...bound(), student_id: 92002 }, 1);
+  assert.equal(unverified, '关联身份 2（学号待提供） · 合成班级 · 本人');
+  assert.doesNotMatch(unverified, /SYN-001|序号|92002/);
+});
+
+test('missing school number never falls back to database IDs or a list position as student sequence', () => {
+  assert.equal(helpers.profileBinding(student(), { ...bound(), student_no: null }, 'ready').studentNo, null);
+  assert.match(helpers.studentIdentityLabel(student(), null, 0), /学号待提供/);
+  assert.doesNotMatch(helpers.studentIdentityLabel(student(), null, 0), /学生序号|92001|93001|94001/);
+  assert.equal(helpers.relationshipLabel({ ...student(), relationship_type: 'other', relationship_label: '合成学生姓名' }), '家庭成员');
+});
+
+test('profile renders class and a pending independent sequence without student or account names', async () => {
+  const vue = require('vue');
+  const { parse, compileScript } = require('@vue/compiler-sfc');
+  const { renderToString } = require('@vue/server-renderer');
+  const file = fs.readFileSync(path.join(__dirname, '../src/components/student/StudentProfilePanel.vue'), 'utf8');
+  const script = compileScript(parse(file).descriptor, { id: 'profile-privacy-test', inlineTemplate: true });
+  const component = compile(script.content, { require: name => name === 'vue' ? vue : name === '@/student/profile' ? helpers : name === '@/api/student' ? { studentApi: {} } : {} }).default;
+  const app = vue.createSSRApp(component, {
+    account: { id: 91001, role: 'student', username: '账户合成姓名', full_name: '账户合成全名' },
+    student: { ...student(), name: '学生合成姓名', relationship_label: '学生合成姓名本人' }, metrics: [],
+  });
+  app.component('router-link', (_, { slots }) => vue.h('a', slots.default?.()));
+  const html = await renderToString(app);
+  assert.match(html, /所属班级/); assert.match(html, /合成班级/);
+  assert.match(html, /学生序号/); assert.match(html, /待提供/); assert.match(html, /与学号分开的固定编号/);
+  assert.doesNotMatch(html, /账户合成姓名|账户合成全名|学生合成姓名|学生姓名|账户姓名|91001|92001|93001/);
 });
 
 test('student number requires matching Student.id and active class, never User.id or Roster.id', () => {
