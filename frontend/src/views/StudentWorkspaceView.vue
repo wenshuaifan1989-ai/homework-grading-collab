@@ -9,7 +9,7 @@ import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
 import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
 import StudentFamilyConnection from '@/components/student/StudentFamilyConnection.vue';
-import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
+import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
 const auth = useAuthStore();
 const students = ref<LinkedStudent[]>([]);
 const selectedStudentId = ref<number | null>(null);
@@ -17,7 +17,10 @@ const binding = ref<StudentBinding | null>(null);
 const bindingRequired = ref(false);
 const assignments = ref<StudentAssignment[]>([]);
 const mistakes = ref<MistakeItem[]>([]);
-const resultReviewIds = ref<Set<string>>(new Set());
+// These are local display observations, never statuses sent to the server.
+// SUCCESS is held as unconfirmed until its student-visible feedback is checked.
+const observedTaskStates = ref<Record<string, { state: string; version: number }>>({});
+let observationVersion = 0;
 const mistakeError = ref(false);
 const loadingMistakes = ref(false);
 const subject = ref('');
@@ -38,10 +41,12 @@ const rosterOptions = ref<RosterOption[]>([]);
 const selectedRosterId = ref<number | null>(null);
 const bindingBusy = ref(false);
 const activeAssignmentId = ref<number | null>(null);
+const submissionAssignment = ref<StudentAssignment | null>(null);
 const uploader = ref<{
     hasDraft: boolean;
     busy: boolean;
     unresolved?: boolean;
+    focus?: () => void;
 } | null>(null);
 const result = ref<GradingResultResponse | null>(null);
 const resultTaskId = ref('');
@@ -69,9 +74,9 @@ const subjectCounts = computed(() => assignmentsLoaded.value ? assignments.value
     if (item.subject) counts[item.subject] = (counts[item.subject] || 0) + 1;
     return counts;
 }, { '': 0 }) : undefined);
-const effectiveAssignments = computed(() => assignments.value.map(item => item.task_id && resultReviewIds.value.has(item.task_id) ? { ...item, task_status: 'HOLD_REVIEW' } : item));
+const effectiveAssignments = computed(() => assignments.value.map(item => item.task_id && observedTaskStates.value[item.task_id] ? { ...item, submitted: true, task_status: observedTaskStates.value[item.task_id].state } : item));
 const visibleAssignments = computed(() => sortAssignments(effectiveAssignments.value.filter(item => (!subject.value || item.subject === subject.value) && (status.value === 'all' || assignmentGroup(item) === status.value) && (!search.value.trim() || (item.title + ' ' + item.class_name).includes(search.value.trim())))));
-const activeAssignment = computed(() => assignments.value.find(item => item.id === activeAssignmentId.value));
+const activeAssignment = computed(() => submissionAssignment.value?.id === activeAssignmentId.value ? submissionAssignment.value : assignments.value.find(item => item.id === activeAssignmentId.value));
 const todos = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'todo'));
 const reviews = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'review'));
 const reminders = computed(() => assignmentReminders(effectiveAssignments.value, now.value));
@@ -112,9 +117,29 @@ function beforeUnload(event: BeforeUnloadEvent) { if (uploader.value?.hasDraft |
 onBeforeRouteLeave(() => mayDiscard());
 function revokeOriginals() { originalImages.value.forEach(url => URL.revokeObjectURL(url)); originalImages.value = []; }
 function clearResult() { resultSerial += 1; result.value = null; resultTaskId.value = ''; resultNotice.value = ''; resultError.value = ''; resultBusy.value = false; revokeOriginals(); }
+function applyAssignmentList(items: StudentAssignment[], requestVersion: number) {
+    const next: typeof observedTaskStates.value = {};
+    for (const [taskId, observation] of Object.entries(observedTaskStates.value)) {
+        // An explicit status read started during this list request is newer evidence.
+        if (observation.version > requestVersion) {
+            next[taskId] = observation;
+            continue;
+        }
+        const item = items.find(assignment => assignment.task_id === taskId);
+        // A newer list supersedes older status reads. SUCCESS alone cannot clear
+        // previously missing/review feedback, so wait for a fresh feedback read.
+        if (item?.task_status === 'SUCCESS' && observation.state !== 'SUCCESS')
+            next[taskId] = { state: 'RESULT_PENDING', version: observation.version };
+        if (taskId === resultTaskId.value && (!item || item.task_status !== 'SUCCESS' || observation.state !== 'SUCCESS'))
+            clearResult();
+    }
+    observedTaskStates.value = next;
+    assignments.value = items;
+}
 async function loadAssignments() {
     const studentId = selectedStudentId.value;
     const request = ++serial;
+    const requestVersion = observationVersion;
     mistakeError.value = false;
     if (!studentId) {
         assignments.value = [];
@@ -131,7 +156,7 @@ async function loadAssignments() {
         const response = await studentApi.getAssignments(studentId);
         if (request !== serial)
             return;
-        assignments.value = Array.isArray(response.data.data) ? response.data.data : [];
+        applyAssignmentList(Array.isArray(response.data.data) ? response.data.data : [], requestVersion);
         assignmentsLoaded.value = true;
         if (!subjects.value.includes(subject.value))
             subject.value = '';
@@ -188,7 +213,8 @@ async function changeStudent(event: Event) {
     }
     activeAssignmentId.value = null;
     highlightedAssignmentId.value = null;
-    resultReviewIds.value = new Set();
+    submissionAssignment.value = null;
+    observedTaskStates.value = {};
     assignments.value = [];
     assignmentsLoaded.value = false;
     mistakes.value = [];
@@ -203,6 +229,7 @@ async function refreshAssignments() {
     if (!mayDiscard())
         return;
     activeAssignmentId.value = null;
+    submissionAssignment.value = null;
     await loadAssignments();
 }
 async function createFamilyInvite() {
@@ -286,7 +313,7 @@ async function bindStudent() {
 async function openSubmit(item: StudentAssignment) {
     if (activeAssignmentId.value === item.id) {
         await nextTick();
-        document.getElementById('student-submission')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        uploader.value?.focus?.();
         return;
     }
     if (!mayDiscard())
@@ -301,34 +328,37 @@ async function openSubmit(item: StudentAssignment) {
     }
     error.value = '';
     clearResult();
+    submissionAssignment.value = { ...item };
     activeAssignmentId.value = item.id;
     await nextTick();
-    document.getElementById('student-submission')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    uploader.value?.focus?.();
 }
-function closeSubmission() { if (mayDiscard())
-    activeAssignmentId.value = null; }
+function closeSubmission() {
+    if (!mayDiscard()) return;
+    activeAssignmentId.value = null;
+    submissionAssignment.value = null;
+}
 async function onSubmitted(response: {
     task_id: string;
     status: string;
     image_count: number;
 }) {
     const item = activeAssignment.value;
+    const id = selectedStudentId.value, request = serial;
+    const requestVersion = observationVersion;
     if (item) {
         item.submitted = true;
         item.task_id = response.task_id;
         item.task_status = response.status;
+        assignments.value = assignments.value.map(assignment => assignment.id === item.id ? { ...assignment, submitted: true, task_id: response.task_id, task_status: response.status } : assignment);
     }
-    activeAssignmentId.value = null;
     notice.value = `已收到整份作业，共 ${response.image_count} 张照片。请保留任务编号：${response.task_id}。`;
-    await nextTick();
-    document.getElementById('submission-receipt')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     // The server receipt is authoritative even if the following list refresh fails.
-    const id = selectedStudentId.value, request = serial;
     if (id) {
         try {
             const response = await studentApi.getAssignments(id);
             if (id === selectedStudentId.value && request === serial) {
-                assignments.value = response.data.data || [];
+                applyAssignmentList(Array.isArray(response.data.data) ? response.data.data : [], requestVersion);
                 assignmentsLoaded.value = true;
             }
         }
@@ -341,20 +371,25 @@ async function onSubmitted(response: {
 async function showResult(taskId: string) {
     clearResult();
     const request = resultSerial;
+    const studentId = selectedStudentId.value;
+    const assignmentIds = assignments.value.filter(item => item.task_id === taskId).map(item => item.id);
+    const current = () => request === resultSerial && studentId === selectedStudentId.value
+        && (!assignmentIds.length || assignments.value.some(item => assignmentIds.includes(item.id) && item.task_id === taskId));
+    const observe = (state: string) => { observedTaskStates.value = { ...observedTaskStates.value, [taskId]: { state, version: ++observationVersion } }; };
     resultTaskId.value = taskId;
     resultBusy.value = true;
     try {
         const response = (await studentApi.getStatus(taskId)).data.data;
-        if (request !== resultSerial)
+        if (!current())
             return;
-        if (isReview(response.status))
-            resultReviewIds.value.add(taskId);
-        if (response.status !== 'SUCCESS') {
-            resultNotice.value = isReview(response.status) ? '老师正在核对这份作业。复核完成前不计作错题，也不显示分数，无需重复提交。' : `${taskLabel(response.status)}。可稍后刷新查看。`;
+        const taskStatus = typeof response?.status === 'string' && response.status.trim() ? response.status : 'RESULT_PENDING';
+        observe(taskStatus === 'SUCCESS' ? 'RESULT_PENDING' : taskStatus);
+        if (taskStatus !== 'SUCCESS') {
+            resultNotice.value = isReview(taskStatus) ? '老师正在核对这份作业。复核完成前不计作错题，也不显示分数，无需重复提交。' : `${taskLabel(taskStatus)}。可稍后刷新查看。`;
             return;
         }
         const data = (await studentApi.getResult(taskId)).data.data;
-        if (request !== resultSerial)
+        if (!current())
             return;
         if (!data.results?.length) {
             resultNotice.value = '暂时没有可展示的题目反馈，请联系老师。';
@@ -362,21 +397,21 @@ async function showResult(taskId: string) {
         }
         result.value = data;
         if (data.results.some(item => !trustedQuestion(item)))
-            resultReviewIds.value.add(taskId);
+            observe('HOLD_REVIEW');
         else
-            resultReviewIds.value.delete(taskId);
+            observe('SUCCESS');
         if (!trustedSummary(data))
             resultNotice.value = data.results.some(item => !trustedQuestion(item)) ? '部分题目仍待核对，暂不展示总分和正确率。' : '总分尚未确认，暂不展示总分和正确率。';
     }
     catch (err: any) {
-        if (request === resultSerial)
+        if (current())
             resultError.value = apiError(err, '暂时无法读取结果，请重试。');
     }
     finally {
         if (request === resultSerial) {
             resultBusy.value = false;
             await nextTick();
-            document.getElementById('feedback-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (current()) document.getElementById('feedback-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
 }
@@ -515,7 +550,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
     <div class="card-top"><span class="subject-pill">{{ subjectLabel(item.subject) }}</span><span class="status-pill" :class="assignmentGroup(item)">{{ assignmentGroup(item) === 'todo' ? '待提交' : taskLabel(item.task_status) }}</span></div>
     <h3 :id="`assignment-title-${item.id}`">{{ item.title }}</h3>
     <p class="meta">{{ item.class_name }}<template v-if="item.grade"> · {{ gradeLabel(item.grade) }}</template></p>
-    <p class="deadline" :class="{overdue: assignmentGroup(item)==='todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now}"><span v-if="assignmentGroup(item)==='todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now">已过截止 · </span>截止：{{ dateLabel(item.due_at) }}</p>
+    <p class="deadline" :class="{overdue: assignmentGroup(item)==='todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now}"><span v-if="assignmentGroup(item)==='todo' && deadlineHint(item.due_at, now)">{{ deadlineHint(item.due_at, now) }} · </span>截止：{{ dateLabel(item.due_at) }}</p>
   </div>
 </div>
 <details v-if="item.description || (item.variant_mode && item.variant_available && item.variant_questions?.length)" class="requirements">
@@ -600,7 +635,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <p v-else-if="!reminders.upcoming.length" class="muted">暂无已确认截止时间的即将到期作业。</p>
 <button v-for="item in reminders.upcoming.slice(0,3)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
 <span>{{ item.title }} <span aria-hidden="true">↗</span></span>
-<small>{{ dateLabel(item.due_at) }}</small>
+<small><template v-if="deadlineHint(item.due_at, now)">{{ deadlineHint(item.due_at, now) }} · </template>{{ dateLabel(item.due_at) }}</small>
 </button>
 </section>
         <section v-if="reminders.review.length" class="reminder-card">

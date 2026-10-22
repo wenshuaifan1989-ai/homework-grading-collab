@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { studentApi, type StudentAssignment } from '@/api/student';
+import { taskLabel } from '@/student/workbench';
 const props = defineProps<{
     assignment: StudentAssignment;
     studentId: number;
@@ -17,6 +18,9 @@ const emit = defineEmits<{
     ];
 }>();
 const selectedFiles = ref<File[]>([]);
+const submissionDialog = ref<HTMLDialogElement | null>(null);
+const step = ref<'add' | 'review' | 'receipt'>('add');
+const receipt = ref<{ task_id: string; status: string; image_count: number } | null>(null);
 const uploadPreviews = ref<string[]>([]);
 const uploadError = ref('');
 const cameraDialog = ref<HTMLDialogElement | null>(null);
@@ -44,7 +48,7 @@ function clearUploadQueue() {
     uploadError.value = '';
 }
 function appendPhotos(files: File[]): boolean {
-    if (queueLocked.value || !files.length)
+    if (queueLocked.value || receipt.value || !files.length)
         return false;
     if (selectedFiles.value.length + files.length > 9) {
         uploadError.value = `已有 ${selectedFiles.value.length} 张，最多还能添加 ${9 - selectedFiles.value.length} 张。`;
@@ -178,7 +182,7 @@ async function takePhoto() {
 }
 async function submitAssignment() {
     const assignment = props.assignment;
-    if (submitting.value)
+    if (submitting.value || receipt.value)
         return;
     error.value = '';
     if (!selectedFiles.value.length || selectedFiles.value.length > 9) {
@@ -205,8 +209,16 @@ async function submitAssignment() {
         const { data } = await studentApi.submitAssignment(form, submissionKey.value);
         if (!data.data?.task_id)
             throw new Error('服务未返回任务编号，请保留照片并重试。');
-        emit('submitted', data.data);
+        receipt.value = {
+            task_id: data.data.task_id,
+            status: data.data.status || 'PENDING',
+            image_count: Number.isInteger(data.data.image_count) && data.data.image_count > 0 ? data.data.image_count : selectedFiles.value.length,
+        };
         clearUploadQueue();
+        step.value = 'receipt';
+        emit('submitted', receipt.value);
+        await nextTick();
+        document.getElementById('photo-receipt-heading')?.focus();
     }
     catch (requestError: any) {
         error.value = requestError.response?.data?.detail || requestError.response?.data?.message || requestError.message || '提交失败，请保留照片后重试。';
@@ -215,27 +227,47 @@ async function submitAssignment() {
         submitting.value = false;
     }
 }
-defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: computed(() => submitting.value), unresolved: computed(() => !!submissionKey.value && !submitting.value) });
-onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
+function reviewPhotos() {
+    if (!selectedFiles.value.length || submitting.value) return;
+    step.value = 'review';
+}
+function requestClose() { emit('cancel'); }
+function focus() { submissionDialog.value?.focus(); }
+defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: computed(() => submitting.value), unresolved: computed(() => !!submissionKey.value && !submitting.value), focus });
+onMounted(() => { submissionDialog.value?.showModal(); });
+onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.close(); photoDialog.value?.close(); stopCamera(); clearUploadQueue(); });
 </script>
 <template>
-  <section class="submission" aria-labelledby="submission-heading">
+  <dialog ref="submissionDialog" class="submission" aria-labelledby="submission-heading" tabindex="-1" @cancel.prevent="requestClose">
     <header class="submission-header">
 <div>
 <p>一次提交整份作业</p>
 <h2 id="submission-heading">{{ assignment.title }}</h2>
 </div>
-<button type="button" class="btn btn-secondary btn-sm" :disabled="submitting" @click="$emit('cancel')">收起</button>
+<button type="button" class="btn btn-secondary btn-sm" :disabled="submitting" @click="requestClose">关闭提交</button>
 </header>
+    <ol class="submission-steps" aria-label="作业提交流程">
+      <li :aria-current="step === 'add' ? 'step' : undefined" :class="{ active: step === 'add' }">1 添加照片</li>
+      <li :aria-current="step === 'review' ? 'step' : undefined" :class="{ active: step === 'review' }">2 检查顺序</li>
+      <li :aria-current="step === 'receipt' ? 'step' : undefined" :class="{ active: step === 'receipt' }">3 提交回执</li>
+    </ol>
+    <section v-if="receipt" class="submission-receipt" aria-labelledby="photo-receipt-heading">
+      <h3 id="photo-receipt-heading" tabindex="-1">整份作业已收到</h3>
+      <p>本次回执：已收到 {{ receipt.image_count }} 张作业照片。</p>
+      <p>任务编号：<strong class="receipt-id">{{ receipt.task_id }}</strong></p>
+      <p>{{ receipt.status === 'SUCCESS' ? '已收到处理状态，请关闭后查看可信批改反馈。' : `${taskLabel(receipt.status)}。` }}无需重复提交。</p>
+      <button type="button" class="btn btn-primary" @click="requestClose">完成，返回作业清单</button>
+    </section>
+    <template v-else>
     <p v-if="error" class="photo-error" role="alert">{{ error }}</p>
     <div class="student-upload-box">
 
             <div class="photo-queue-heading">
-<strong>准备作业照片</strong>
+<strong>{{ step === 'review' ? '检查照片与顺序' : '准备作业照片' }}</strong>
 <span aria-live="polite">{{ selectedFiles.length }} / 9 张</span>
 </div>
-            <p class="muted">拍清整页，按页码添加；拍照后先检查，最后一次提交。</p>
-            <div class="photo-add-actions">
+            <p class="muted">{{ step === 'review' ? '确认每张照片文字清晰、页码顺序正确。一次提交这组照片，对应一个作业任务。' : '拍清整页，按页码连续添加 1–9 张；最后检查后一次提交。' }}</p>
+            <div v-if="step === 'add'" class="photo-add-actions">
               <button type="button" class="btn btn-primary" :disabled="queueLocked || selectedFiles.length >= 9" @click="openCamera">拍照添加</button>
               <label class="student-file-picker" :class="{ 'is-disabled': queueLocked || selectedFiles.length >= 9 }">从相册选择<input aria-label="从相册选择作业照片" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" multiple :disabled="queueLocked || selectedFiles.length >= 9" @change="onFileChange" />
 </label>
@@ -257,8 +289,15 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
               </li>
             </ol>
             <p v-else class="muted">还没有添加照片。支持 JPG、PNG、GIF、BMP，每张不超过 10MB。</p>
-            <button class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '提交中…' : `${submissionKey ? '重试提交' : '提交'} ${selectedFiles.length} 张图片` }}</button>
+            <div class="submission-actions">
+              <button v-if="step === 'add'" type="button" class="btn btn-primary" :disabled="!selectedFiles.length" @click="reviewPhotos">检查照片与顺序 →</button>
+              <template v-else>
+                <button type="button" class="btn btn-secondary" :disabled="queueLocked" @click="step = 'add'">继续添加照片</button>
+                <button type="button" class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '提交中…' : `${submissionKey ? '用原照片重试' : '确认提交'} ${selectedFiles.length} 张图片` }}</button>
+              </template>
+            </div>
     </div>
+    </template>
     <dialog ref="cameraDialog" class="photo-dialog" aria-labelledby="camera-heading" @close="stopCamera" @cancel="stopCamera">
       <div class="photo-dialog-heading">
 <h2 id="camera-heading">拍摄作业</h2>
@@ -284,7 +323,7 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
     </dialog>
 
 
-  </section>
+  </dialog>
 </template>
 <style scoped>
 
@@ -325,7 +364,7 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 .photo-error { margin: 0; color: #a33131; font-size: .85rem; }
 .retry-notice{margin:0;padding:12px;border:1px solid #e6d6ab;border-radius:8px;background:#fff8e8;color:#806633;font-size:13px;line-height:1.8}
 
-.photo-dialog { width: min(680px, calc(100vw - 32px)); box-sizing: border-box; max-height: 90dvh; padding: 20px; border: 1px solid #d5e1eb; border-radius: 14px; color: #294a67; }
+.photo-dialog { width: min(680px, calc(100vw - 32px)); box-sizing: border-box; max-height: 90dvh; padding: 20px; border: 1px solid #d5e1eb; border-radius: 14px; color: #294a67; margin: auto; }
 
 .photo-dialog::backdrop { background: rgb(15 23 42 / 65%); }
 
@@ -340,7 +379,16 @@ onBeforeUnmount(() => { stopCamera(); clearUploadQueue(); });
 .photo-full { display: block; max-width: 100%; max-height: 70dvh; margin: auto; object-fit: contain; }
 
 
-.submission{padding:22px;border:1px solid #b5d0c3;background:#fbfdfb;border-radius:16px;margin:18px 0}
+.submission{padding:24px;border:1px solid #b5d0c3;background:#fbfdfb;border-radius:16px;width:min(780px,calc(100vw - 32px));max-height:90dvh;box-sizing:border-box;color:#263d32;overflow:auto;margin:auto}
+.submission::backdrop{background:rgb(19 35 26 / 65%)}
+.submission:focus{outline:none}
+.submission-steps{display:flex;gap:10px;list-style:none;padding:0;margin:20px 0;flex-wrap:wrap;font-size:12px;color:#788b80}
+.submission-steps li{padding:7px 10px;border-radius:7px;background:#eef2ec}
+.submission-steps .active{background:#dfede3;color:#185d49;font-weight:600}
+.submission-actions{display:flex;flex-wrap:wrap;gap:10px;width:100%;padding-top:8px}
+.submission-receipt{padding:14px;border:1px solid #d5e7d7;border-radius:10px;background:#eef7ed;font-size:14px;line-height:1.8}
+.submission-receipt h3{margin:0 0 12px;font-size:19px}
+.receipt-id{overflow-wrap:anywhere}
 .submission-header{display:flex;justify-content:space-between;gap:12px;align-items:center}
 .submission-header p{font-size:12px;color:#527365;margin:0 0 8px}
 .submission-header h2{font-size:19px;margin:0}

@@ -35,6 +35,18 @@ export function deadlineTimestamp(value?: string | null): number | null {
   const stamp = Date.parse(value)
   return Number.isFinite(stamp) ? stamp : null
 }
+export function deadlineHint(value: string | null | undefined, now: number): string {
+  const deadline = deadlineTimestamp(value)
+  if (deadline === null || !Number.isFinite(now)) return ''
+  if (deadline < now) return '已过截止'
+  const dayNumber = (stamp: number) => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(stamp))
+    const part = (type: string) => Number(parts.find(item => item.type === type)!.value)
+    return Date.UTC(part('year'), part('month') - 1, part('day')) / 86400000
+  }
+  const days = dayNumber(deadline) - dayNumber(now)
+  return days === 0 ? '今天截止' : days === 1 ? '明天截止' : ''
+}
 export function dateLabel(value?: string | null): string {
   if (!value) return '未设置截止时间'
   const stamp = deadlineTimestamp(value)

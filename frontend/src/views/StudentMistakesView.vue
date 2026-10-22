@@ -12,7 +12,7 @@ const mistakes = ref<MistakeItem[]>([]);
 const subject = ref('');
 const knowledge = ref('');
 const dateFilter = ref('');
-const state = ref('all');
+const state = ref('todo');
 const drafts = ref<Record<number, string>>({});
 const history = ref<Record<number, Array<Record<string, any>>>>({});
 const historyOpen = ref<Record<number, boolean>>({});
@@ -40,6 +40,9 @@ const visibleMistakes = computed(() => mistakes.value.filter(item => (!subject.v
 const reviewItems = computed(() => mistakes.value.filter(item => selected.value.has(item.id)));
 const pendingCount = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)).length);
 const reviewCount = computed(() => mistakes.value.filter(item => item.status === 'correction_submitted').length);
+const doneCount = computed(() => mistakes.value.filter(item => item.status === 'mastered').length);
+const hasFilters = computed(() => !!subject.value || !!knowledge.value || !!dateFilter.value || state.value !== 'all');
+function clearFilters() { subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'all'; }
 function apiError(err: any, fallback: string) { return err?.response?.data?.detail || err?.response?.data?.message || fallback; }
 function hasDraft() { return Object.values(drafts.value).some(value => value.trim()); }
 function canLeave() { if (busyId.value !== null) {
@@ -90,7 +93,7 @@ finally {
 async function selectStudent(event: Event) { const element = event.target as HTMLSelectElement; if (!canLeave()) {
     element.value = String(studentId.value || '');
     return;
-} serial++; studentId.value = Number(element.value) || null; mistakes.value = []; mistakesLoaded.value = false; drafts.value = {}; history.value = {}; historyOpen.value = {}; historyError.value = {}; selected.value = new Set(); clearEvidence(); subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'all'; notice.value = ''; await loadMistakes(); }
+} serial++; studentId.value = Number(element.value) || null; mistakes.value = []; mistakesLoaded.value = false; drafts.value = {}; history.value = {}; historyOpen.value = {}; historyError.value = {}; selected.value = new Set(); clearEvidence(); subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'todo'; notice.value = ''; await loadMistakes(); }
 async function showImage(item: MistakeItem, kind: 'crop' | 'original') { const key = `${item.id}:${kind}`, id = studentId.value; if (imageBusy.value[item.id])
     return; imageKind.value[item.id] = kind; if (evidence.value[key])
     return; imageBusy.value[item.id] = true; error.value = ''; try {
@@ -167,10 +170,16 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 <h1>我的错题库</h1>
 <p class="muted">回看原题与本人作答，订正后查看老师审核记录。</p>
 </div>
+<div class="header-controls">
+<label class="identity-picker">学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
+<option value="">选择已绑定学生</option>
+<option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}</option>
+</select></label>
 <router-link to="/student">返回我的作业 →</router-link>
+</div>
 </header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-<p v-if="notice" class="notice success" role="status">{{ notice }}</p>
+<div v-if="notice" class="notice success" role="status"><span>{{ notice }}</span><button v-if="notice.startsWith('订正已提交') && state!=='review'" class="text-button" @click="state='review'">查看待老师审核</button></div>
     <StudentWorkbench>
       <template #navigation>
         <StudentStudyNavigation v-model="subject" page="mistakes" :subjects="subjects" :counts="subjectCounts" />
@@ -178,17 +187,20 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
       <section class="panel filter-panel">
 <div class="section-heading">
 <div>
-<p class="eyebrow">{{ subject ? subjectLabel(subject) : '全部学科' }}</p>
-<h2>错题与订正 <span v-if="mistakesLoaded" class="list-count">{{ visibleMistakes.length }} 题</span></h2>
+<h2>错题与订正 <span class="section-subject">{{ subject ? subjectLabel(subject) : '全部学科' }}</span><span v-if="mistakesLoaded" class="list-count">{{ visibleMistakes.length }} 题</span></h2>
 </div>
 <button class="text-button" :disabled="loading || busyId!==null" @click="loadMistakes">刷新错题</button>
 </div>
+<nav class="mistake-tabs" aria-label="错题状态筛选">
+<button type="button" :aria-pressed="state==='todo'" @click="state='todo'">待订正 <span>{{ mistakesLoaded ? pendingCount : '—' }}</span></button>
+<button type="button" :aria-pressed="state==='review'" @click="state='review'">待老师审核 <span>{{ mistakesLoaded ? reviewCount : '—' }}</span></button>
+<button type="button" :aria-pressed="state==='done'" @click="state='done'">老师已审核 <span>{{ mistakesLoaded ? doneCount : '—' }}</span></button>
+<button type="button" :aria-pressed="state==='all'" @click="state='all'">全部错题 <span>{{ mistakesLoaded ? mistakes.length : '—' }}</span></button>
+</nav>
+<div class="filter-tools">
+<details class="advanced-filters">
+<summary>知识点与日期筛选<span v-if="knowledge || dateFilter" class="active-filters">已筛选</span></summary>
 <div class="filters">
-<label>学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
-<option value="">选择已绑定学生</option>
-<option v-for="item in students" :key="item.student_id" :value="item.student_id">{{ item.name }}</option>
-</select>
-</label>
 <label>知识点<select v-model="knowledge">
 <option value="">全部知识点</option>
 <option value="__unclassified__">待归类</option>
@@ -197,18 +209,15 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 </label>
 <label>日期<input v-model="dateFilter" type="date" />
 </label>
-<label>订正状态<select v-model="state">
-<option value="all">全部状态</option>
-<option value="todo">待订正</option>
-<option value="review">待老师审核</option>
-<option value="done">老师已审核</option>
-</select>
-</label>
 </div>
+</details>
+<button v-if="hasFilters" type="button" class="text-button" @click="clearFilters">清除筛选</button>
+</div>
+<p v-if="knowledge || dateFilter" class="filter-summary">当前条件：<span v-if="knowledge">{{ knowledge==='__unclassified__' ? '知识点待归类' : knowledge }}</span><span v-if="dateFilter">{{ dateFilter }}</span></p>
 </section>
       <p v-if="loading" class="empty" role="status">正在读取本人错题…</p>
 <p v-else-if="!studentId" class="empty">请先选择已绑定的学生身份。</p>
-<p v-else-if="!visibleMistakes.length && !error" class="empty">当前范围暂无错题，可以调整筛选条件。</p>
+<div v-else-if="!visibleMistakes.length && !error" class="empty"><p>{{ state==='todo' ? '当前范围没有待订正错题，可以查看待老师审核或全部错题。' : '当前范围暂无错题，可以调整筛选条件。' }}</p><button v-if="hasFilters" type="button" class="text-button" @click="clearFilters">查看全部错题</button></div>
       <article v-for="item in visibleMistakes" :key="item.id" class="panel mistake-card">
 <div class="card-top">
 <span class="subject-pill">{{ subjectLabel(item.subject) }}</span>
@@ -292,19 +301,33 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
   </section>
 </template>
 <style scoped>
-.mistake-workspace{color:#263d32;max-width:1600px;min-width:0;margin:0 auto;padding:6px 0 34px}
-.page-header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}
+.mistake-workspace{container-type:inline-size;color:#263d32;max-width:1600px;min-width:0;margin:0 auto;padding:6px 0 34px}
+.page-header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:20px}
 .eyebrow{font-size:12px;color:#7c8e80;letter-spacing:.06em;margin:0 0 10px}
-.page-header h1{font-size:30px;margin:0}
-.page-header>a{color:#456c54;text-decoration:none;font-size:13px}
+.page-header h1{font-size:28px;margin:0}
+.header-controls{display:grid;gap:9px;min-width:160px}
+.header-controls>a{color:#456c54;text-decoration:none;font-size:12px;text-align:right}
+.identity-picker{display:grid;gap:7px;font-size:12px;color:#6b806e}
 .muted{font-size:13px;line-height:1.8;color:#7a8e7e}
 .panel,.reminder-card{border:1px solid #e0e8df;border-radius:14px;background:#fff;padding:20px;margin-bottom:18px;min-width:0}
 .reminder-card{margin:0}
-.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .section-heading h2,.reminder-card h2{font-size:17px;margin:0}
 .list-count{font-size:12px;font-weight:400;color:#75887a;margin-left:7px}
-.mistake-workspace button:focus-visible,.mistake-workspace a:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
-.filters{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap}
+.section-subject{font-size:11px;font-weight:400;color:#75887a;margin-left:7px}
+.filter-panel{padding:16px 18px}
+.mistake-workspace button:focus-visible,.mistake-workspace a:focus-visible,.mistake-workspace summary:focus-visible,.mistake-workspace select:focus-visible,.mistake-workspace input:focus-visible,.mistake-workspace textarea:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
+.mistake-workspace .mistake-tabs{display:flex;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e4ebe5}
+.mistake-workspace .mistake-tabs button{padding:8px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#708176;font-size:12px}
+.mistake-workspace .mistake-tabs button[aria-pressed=true]{color:#185d49;border-bottom-color:#185d49;font-weight:650}
+.mistake-tabs span{margin-left:4px;font-size:11px}
+.filter-tools{display:flex;align-items:start;justify-content:space-between;gap:10px;margin-top:11px}
+.advanced-filters{flex:1;min-width:0;font-size:12px;color:#637e69}
+.advanced-filters summary{cursor:pointer;line-height:2}
+.active-filters{font-size:11px;color:#185d49;background:#e7f3ea;border-radius:4px;padding:2px 5px;margin-left:7px}
+.filter-summary{font-size:11px;line-height:1.8;color:#637e69;margin:8px 0 0;overflow-wrap:anywhere}
+.filter-summary span{margin-right:8px}
+.filters{display:flex;gap:12px;margin-top:10px;flex-wrap:wrap}
 .filters label{display:grid;gap:8px;flex:1;font-size:12px;min-width:130px;color:#6b806e}
 .mistake-workspace select,.mistake-workspace input[type=date],.mistake-workspace textarea{font:inherit;font-size:13px;box-sizing:border-box;padding:10px;border:1px solid #d6e1d7;border-radius:8px;background:#fff;color:#385541;max-width:100%}
 .mistake-workspace button{font:inherit;font-size:13px;padding:10px 14px;background:#185d49;border:1px solid #185d49;border-radius:9px;color:#fff;cursor:pointer}
@@ -314,14 +337,14 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 .card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .subject-pill,.status-pill{font-size:11px;border-radius:6px;padding:5px 10px;background:#edf3ec;color:#5e7c62}
 .status-pill{background:#faf4e3;color:#8e7745}
-.source-label{font-size:12px;color:#849285;margin:18px 0 8px}
-.mistake-card h2{font-size:19px;line-height:1.7;margin:0 0 15px}
+.source-label{font-size:12px;color:#849285;margin:12px 0 7px}
+.mistake-card h2{font-size:18px;line-height:1.7;margin:0 0 10px}
 .options{font-size:14px;line-height:1.8}
 .knowledge-chips{display:flex;flex-wrap:wrap;gap:7px}
 .knowledge-chips span{font-size:11px;padding:5px 9px;background:#f2f6ef;border-radius:5px;color:#6e836b}
-.own-answer{font-size:14px;line-height:1.8;padding:12px;background:#f6f8f3;border-radius:7px}
-.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:15px 0}
-.correction-field{display:grid;gap:10px;font-size:13px;color:#5b765f;margin-top:20px}
+.own-answer{font-size:14px;line-height:1.8;padding:10px;background:#f6f8f3;border-radius:7px;margin:10px 0 5px}
+.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0}
+.correction-field{display:grid;gap:8px;font-size:13px;color:#5b765f;margin-top:14px}
 .correction-field textarea{width:100%;resize:vertical;line-height:1.8}
 .review-choice{display:flex;align-items:center;gap:9px;font-size:12px;color:#69816a;margin-top:20px}
 .review-choice input{accent-color:#185d49;width:16px;height:16px}
@@ -335,14 +358,15 @@ onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('b
 .small-note{font-size:11px;line-height:1.8;color:#8a9987;margin-bottom:0}
 .notice{font-size:13px;line-height:1.8;padding:14px;border-radius:8px;margin:0 0 18px}
 .error{background:#fff0ec;color:#a24a3b}
-.success{background:#eaf3e8;color:#497543}
+.success{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#eaf3e8;color:#497543}
 .empty{font-size:13px;text-align:center;color:#84947e;padding:40px 10px}
 .review-dialog{width:min(680px,94vw);max-height:90dvh;box-sizing:border-box;border:1px solid #d0dfce;border-radius:15px;padding:24px;color:#36553c}
 .review-dialog::backdrop{background:rgb(22 40 25 / 60%)}
 .review-dialog li{border-top:1px solid #e3eadf;padding:16px 5px;font-size:14px;line-height:1.8}
 .review-dialog li>span,.review-dialog li>small{font-size:12px;color:#83917c}
-@media(max-width:650px){.page-header{align-items:start;flex-direction:column}
+@container(max-width:650px){.page-header{align-items:start;flex-direction:column;gap:12px}
 .page-header h1{font-size:26px}
+.header-controls{width:100%}
 .panel{padding:17px}
 .filters{flex-direction:column}
 .card-top{align-items:start}

@@ -49,6 +49,22 @@ test('only explicitly zoned deadlines are used to assert overdue', () => {
   assert.equal(h.deadlineTimestamp('2026-10-21T18:00:00+08:00'), Date.parse('2026-10-21T10:00:00Z'));
   assert.match(h.dateLabel(null), /未设置/);
 });
+test('relative deadline hints use Shanghai calendar days and keep the exact cutoff', () => {
+  const now = Date.parse('2026-10-22T15:30:00Z'); // 23:30 in Shanghai
+  assert.equal(h.deadlineHint('2026-10-22T23:29:59+08:00', now), '已过截止');
+  assert.equal(h.deadlineHint('2026-10-22T23:30:00+08:00', now), '今天截止');
+  assert.equal(h.deadlineHint('2026-10-22T15:59:00Z', now), '今天截止');
+  assert.equal(h.deadlineHint('2026-10-22T16:00:00Z', now), '明天截止');
+  assert.equal(h.deadlineHint('2026-10-23T23:59:59+08:00', now), '明天截止');
+  assert.equal(h.deadlineHint('2026-10-24T00:00:00+08:00', now), '');
+  assert.equal(h.deadlineHint('2027-01-01T00:00:00+08:00', Date.parse('2026-12-31T23:00:00+08:00')), '明天截止');
+});
+test('relative deadline hints never infer missing, invalid or unzoned dates', () => {
+  for (const value of [null, undefined, '', '2026-10-22T10:00:00', 'invalid+08:00']) {
+    assert.equal(h.deadlineHint(value, Date.parse('2026-10-22T09:00:00+08:00')), '');
+  }
+  assert.equal(h.deadlineHint('2026-10-22T10:00:00+08:00', NaN), '');
+});
 test('display labels distinguish self report, teacher review and acceptance', () => {
   assert.equal(h.subjectLabel('math'), '数学');
   assert.equal(h.gradeLabel('grade7'), '初一');

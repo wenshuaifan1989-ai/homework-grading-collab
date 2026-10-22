@@ -9,6 +9,7 @@ const source = fs.readFileSync(path.join(root, 'src/components/student/StudentPh
 function harness() {
   const revoked = [];
   const requests = [];
+  const events = [];
   let n = 0;
   const api = {
     getAssignments: async () => ({data:{data:[]}}),
@@ -18,15 +19,15 @@ function harness() {
   const media = {getUserMedia:async()=>{throw Object.assign(Error('denied'),{name:'NotAllowedError'});}};
   const module = {exports:{}};
   const context = {module, exports:module.exports, console, Date, Intl, Set, Math, File, Blob, FormData, crypto,
-    defineProps:()=>({assignment:{id:123,subject:'math',grade:'grade7',student_id:456},studentId:456}), defineEmits:()=>()=>{}, defineExpose:()=>{},
+    defineProps:()=>({assignment:{id:123,subject:'math',grade:'grade7',student_id:456},studentId:456}), defineEmits:()=>(...args)=>events.push(args), defineExpose:()=>{},
     URL:{createObjectURL:()=>`blob:synthetic-${++n}`,revokeObjectURL:url=>revoked.push(url)},
     navigator:{mediaDevices:media},
-    document:{createElement:()=>({getContext:()=>({drawImage:()=>{}}),toBlob:callback=>callback(new Blob(['photo'],{type:'image/jpeg'}))})},
+    document:{getElementById:()=>({focus:()=>{}}),createElement:()=>({getContext:()=>({drawImage:()=>{}}),toBlob:callback=>callback(new Blob(['photo'],{type:'image/jpeg'}))})},
     require:name=>name==='vue'?vue:name==='@/stores/auth'?{useAuthStore:()=>({user:{role:'student'}})}:name==='@/api/student'?{studentApi:api}:{}
   };
-  const exports = '\nexport {appendPhotos, removePhoto, movePhoto, onFileChange, selectedFiles, uploadPreviews, uploadError, submissionKey, submitting, submitAssignment, error, openCamera, closeCamera, takePhoto, cameraDialog, cameraVideo, cameraReady, cameraError};';
+  const exports = '\nexport {appendPhotos, removePhoto, movePhoto, onFileChange, selectedFiles, uploadPreviews, uploadError, submissionKey, submitting, submitAssignment, error, openCamera, closeCamera, takePhoto, cameraDialog, cameraVideo, cameraReady, cameraError, step, receipt, reviewPhotos, requestClose};';
   vm.runInNewContext(ts.transpileModule(source+exports,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText, context);
-  return {...module.exports, revoked, requests, api, media};
+  return {...module.exports, revoked, requests, events, api, media};
 }
 const image = name=>new File(['synthetic'],name,{type:'image/png'});
 test('append preserves existing photos; cancellation/invalid/over-limit leave the queue intact',()=>{
@@ -107,7 +108,18 @@ test('missing server task receipt retains photos and the idempotency key',async(
   const h=harness();h.appendPhotos([image('first.png')]);h.api.submitAssignment=async()=>({data:{data:{}}});
   await h.submitAssignment();assert.equal(h.selectedFiles.value.length,1);assert.ok(h.submissionKey.value);assert.match(h.error.value,/任务编号/);
 });
-test('successful receipt clears file previews and allows a new queue',async()=>{
+test('successful receipt clears photos, stays visible and blocks another submission in the same dialog',async()=>{
   const h=harness();h.appendPhotos([image('first.png')]);h.api.submitAssignment=async()=>({data:{data:{task_id:'synthetic-task',status:'PENDING',image_count:1}}});
   await h.submitAssignment();assert.equal(h.selectedFiles.value.length,0);assert.equal(h.uploadPreviews.value.length,0);assert.equal(h.submissionKey.value,'');assert.equal(h.revoked.length,1);
+  assert.equal(h.step.value,'receipt'); assert.equal(h.receipt.value.task_id,'synthetic-task'); assert.equal(h.error.value,'');
+  assert.equal(h.appendPhotos([image('again.png')]),false); await h.submitAssignment();
+  assert.equal(h.events.filter(event=>event[0]==='submitted').length,1);
+  h.requestClose(); assert.equal(h.events.at(-1)[0],'cancel');
+});
+
+test('review step requires photos and an ambiguous retry retains the same review group',async()=>{
+  const h=harness(); h.reviewPhotos(); assert.equal(h.step.value,'add');
+  h.appendPhotos([image('first.png'),image('second.png')]); h.reviewPhotos(); assert.equal(h.step.value,'review');
+  await h.submitAssignment(); assert.equal(h.step.value,'review'); assert.ok(h.submissionKey.value);
+  h.requestClose(); assert.equal(h.events.at(-1)[0],'cancel'); assert.equal(h.selectedFiles.value.length,2);
 });
