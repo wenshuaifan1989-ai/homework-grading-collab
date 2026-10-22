@@ -1,467 +1,769 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-import client from '@/api/client'
-import {
-  studentApi,
-  type LinkedStudent,
-  type RosterOption,
-  type StudentAssignment,
-  type StudentBinding,
-} from '@/api/student'
-import { homeworkApi, type GradingResultResponse, type TaskStatusResponse } from '@/api/homework'
-
-type DateView = 'today' | 'history' | 'all'
-
-const auth = useAuthStore()
-const students = ref<LinkedStudent[]>([])
-const assignments = ref<StudentAssignment[]>([])
-const selectedStudentId = ref<number | null>(null)
-const dateView = ref<DateView>('today')
-const binding = ref<StudentBinding | null>(null)
-const bindingRequired = ref(false)
-const inviteCode = ref('')
-const studentName = ref('')
-const familyCode = ref('')
-const familyRelationship = ref('father')
-const familyInviteCode = ref('')
-const rosterOptions = ref<RosterOption[]>([])
-const selectedRosterId = ref<number | null>(null)
-const activeAssignmentId = ref<number | null>(null)
-const selectedFiles = ref<File[]>([])
-const submissionKey = ref('')
-const result = ref<GradingResultResponse | null>(null)
-const resultTaskId = ref('')
-const retryStatus = ref<TaskStatusResponse | null>(null)
-const imageUrls = ref<string[]>([])
-const message = ref('')
-const error = ref('')
-const loading = ref(false)
-const submitting = ref(false)
-const loadingImages = ref(false)
-
-const isSelfStudent = computed(() => auth.user?.role === 'student')
-const today = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
-}).format(new Date())
-const visibleAssignments = computed(() => assignments.value.filter((assignment) => {
-  const date = assignment.assignment_date?.slice(0, 10)
-  if (dateView.value === 'today') return date === today
-  if (dateView.value === 'history') return Boolean(date && date < today)
-  return true
-}))
-
-function apiError(value: any, fallback: string) {
-  return value?.response?.data?.detail || value?.response?.data?.message || fallback
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeRouteLeave } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
+import { studentApi, type LinkedStudent, type StudentAssignment, type StudentBinding } from '@/api/student';
+import { paperApi, type MistakeItem } from '@/api/paper';
+import type { GradingResultResponse } from '@/api/homework';
+import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
+import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
+import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
+import StudentFamilyConnection from '@/components/student/StudentFamilyConnection.vue';
+import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
+import { studentIdentityLabel, type ProfileMetric } from '@/student/profile';
+import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
+const auth = useAuthStore();
+const students = ref<LinkedStudent[]>([]);
+const selectedStudentId = ref<number | null>(null);
+const binding = ref<StudentBinding | null>(null);
+const bindingRequired = ref(false);
+const assignments = ref<StudentAssignment[]>([]);
+const mistakes = ref<MistakeItem[]>([]);
+// These are local display observations, never statuses sent to the server.
+// SUCCESS is held as unconfirmed until its student-visible feedback is checked.
+const observedTaskStates = ref<Record<string, { state: string; version: number }>>({});
+let observationVersion = 0;
+const mistakeError = ref(false);
+const loadingMistakes = ref(false);
+const subject = ref('');
+const status = ref<AssignmentFilter>('all');
+const search = ref('');
+const highlightedAssignmentId = ref<number | null>(null);
+const loading = ref(true);
+const assignmentsLoaded = ref(false);
+const familyCode = ref('');
+const familyRelationship = ref('father');
+const familyInviteCode = ref('');
+const familyBusy = ref(false);
+const familyNotice = ref('');
+const familyError = ref('');
+const error = ref('');
+const notice = ref('');
+const activeAssignmentId = ref<number | null>(null);
+const submissionAssignment = ref<StudentAssignment | null>(null);
+const uploader = ref<{
+    hasDraft: boolean;
+    busy: boolean;
+    unresolved?: boolean;
+    focus?: () => void;
+} | null>(null);
+const result = ref<GradingResultResponse | null>(null);
+const resultTaskId = ref('');
+const resultBusy = ref(false);
+const resultNotice = ref('');
+const resultError = ref('');
+const originalImages = ref<string[]>([]);
+const imagesBusy = ref(false);
+const paperDialog = ref<HTMLDialogElement | null>(null);
+const paperUrl = ref('');
+const paperBusy = ref(false);
+const paperFormat = ref('');
+const paperTitle = ref('');
+const paperError = ref('');
+const paperInline = ref(false);
+let serial = 0;
+let resultSerial = 0;
+let paperSerial = 0;
+const now = ref(Date.now());
+let clock: ReturnType<typeof setInterval> | undefined;
+const selectedStudent = computed(() => students.value.find(item => item.student_id === selectedStudentId.value));
+const subjects = computed(() => [...new Set(assignments.value.map(item => item.subject).filter(Boolean))]);
+const subjectCounts = computed(() => assignmentsLoaded.value ? assignments.value.reduce<Record<string, number>>((counts, item) => {
+    counts[''] = (counts[''] || 0) + 1;
+    if (item.subject) counts[item.subject] = (counts[item.subject] || 0) + 1;
+    return counts;
+}, { '': 0 }) : undefined);
+const effectiveAssignments = computed(() => assignments.value.map(item => item.task_id && observedTaskStates.value[item.task_id] ? { ...item, submitted: true, task_status: observedTaskStates.value[item.task_id].state } : item));
+const visibleAssignments = computed(() => sortAssignments(effectiveAssignments.value.filter(item => (!subject.value || item.subject === subject.value) && (status.value === 'all' || assignmentGroup(item) === status.value) && (!search.value.trim() || (item.title + ' ' + item.class_name).includes(search.value.trim())))));
+const activeAssignment = computed(() => submissionAssignment.value?.id === activeAssignmentId.value ? submissionAssignment.value : assignments.value.find(item => item.id === activeAssignmentId.value));
+const todos = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'todo'));
+const reviews = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'review'));
+const reminders = computed(() => assignmentReminders(effectiveAssignments.value, now.value));
+const openMistakes = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)));
+const headingDate = computed(() => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now.value)));
+const summaryVisible = computed(() => !!result.value && trustedSummary(result.value));
+const profileMetrics = computed<ProfileMetric[]>(() => selectedStudent.value ? [
+    { label: '待提交作业', value: assignmentsLoaded.value ? todos.value.length : null, unit: '份' },
+    { label: '待老师复核', value: assignmentsLoaded.value ? reviews.value.length : null, unit: '份' },
+    { label: '待订正错题', value: !loadingMistakes.value && !mistakeError.value && !loading.value ? openMistakes.value.length : null, unit: '题' },
+] : []);
+function clearFilters() { subject.value = ''; status.value = 'all'; search.value = ''; }
+async function locateAssignment(item: StudentAssignment) {
+    const studentId = selectedStudentId.value;
+    clearFilters();
+    highlightedAssignmentId.value = item.id;
+    await nextTick();
+    if (studentId !== selectedStudentId.value) return;
+    const card = document.getElementById(`assignment-${item.id}`);
+    card?.focus({ preventScroll: true });
+    card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
-
-async function loadStudents() {
-  const { data } = await studentApi.getMyStudents()
-  students.value = Array.isArray(data.data) ? data.data : []
-  if (!students.value.length) return
-  const stillLinked = students.value.some((student) => student.student_id === selectedStudentId.value)
-  if (!stillLinked) selectedStudentId.value = students.value[0].student_id
+async function showReminder(group: AssignmentFilter) {
+    clearFilters();
+    status.value = group;
+    await nextTick();
+    document.getElementById('assignments-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-
+function apiError(value: any, fallback: string) { return value?.response?.data?.detail || value?.response?.data?.message || value?.message || fallback; }
+function mayDiscard(): boolean {
+    if (uploader.value?.busy) {
+        error.value = '作业正在提交，请等候提交结果后再操作。';
+        return false;
+    }
+    return !uploader.value?.hasDraft || window.confirm(uploader.value?.unresolved
+        ? '这份作业的提交结果尚未确认。离开后将丢失本次重试信息，请先重试或联系老师核实。仍要离开吗？'
+        : '还有未提交的作业照片。离开会丢弃这些照片，是否继续？');
+}
+function beforeUnload(event: BeforeUnloadEvent) { if (uploader.value?.hasDraft || uploader.value?.busy) {
+    event.preventDefault();
+    event.returnValue = '';
+} }
+onBeforeRouteLeave(() => mayDiscard());
+function revokeOriginals() { originalImages.value.forEach(url => URL.revokeObjectURL(url)); originalImages.value = []; }
+function clearResult() { resultSerial += 1; result.value = null; resultTaskId.value = ''; resultNotice.value = ''; resultError.value = ''; resultBusy.value = false; revokeOriginals(); }
+function applyAssignmentList(items: StudentAssignment[], requestVersion: number) {
+    const next: typeof observedTaskStates.value = {};
+    for (const [taskId, observation] of Object.entries(observedTaskStates.value)) {
+        // An explicit status read started during this list request is newer evidence.
+        if (observation.version > requestVersion) {
+            next[taskId] = observation;
+            continue;
+        }
+        const item = items.find(assignment => assignment.task_id === taskId);
+        // A newer list supersedes older status reads. SUCCESS alone cannot clear
+        // previously missing/review feedback, so wait for a fresh feedback read.
+        if (item?.task_status === 'SUCCESS' && observation.state !== 'SUCCESS')
+            next[taskId] = { state: 'RESULT_PENDING', version: observation.version };
+        if (taskId === resultTaskId.value && (!item || item.task_status !== 'SUCCESS' || observation.state !== 'SUCCESS'))
+            clearResult();
+    }
+    observedTaskStates.value = next;
+    assignments.value = items;
+}
 async function loadAssignments() {
-  if (students.value.length > 1 && !selectedStudentId.value) {
-    assignments.value = []
-    return
-  }
-  const studentId = selectedStudentId.value
-    || binding.value?.student_id
-    || undefined
-  const { data } = await studentApi.getAssignments(studentId || undefined)
-  assignments.value = Array.isArray(data.data) ? data.data : []
-}
-
-async function loadWorkspace() {
-  error.value = ''
-  loading.value = true
-  try {
-    if (isSelfStudent.value) {
-      try {
-        const response = await studentApi.getBinding()
-        binding.value = response.data.data
-        bindingRequired.value = !response.data.data?.is_bound
-      } catch {
-        bindingRequired.value = true
-      }
+    const studentId = selectedStudentId.value;
+    const request = ++serial;
+    const requestVersion = observationVersion;
+    mistakeError.value = false;
+    if (!studentId) {
+        assignments.value = [];
+        mistakes.value = [];
+        assignmentsLoaded.value = false;
+        loadingMistakes.value = false;
+        loading.value = false;
+        return;
     }
-    await loadStudents()
-    if (isSelfStudent.value && !students.value.length && !binding.value?.is_bound) {
-      bindingRequired.value = true
-    }
-    if (!bindingRequired.value) await loadAssignments()
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '读取学生作业失败，请稍后重试。')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function findRosterOptions() {
-  error.value = ''
-  message.value = ''
-  rosterOptions.value = []
-  selectedRosterId.value = null
-  if (!inviteCode.value.trim() || !studentName.value.trim()) {
-    error.value = '请填写班级邀请码和学生本人姓名。'
-    return
-  }
-  loading.value = true
-  try {
-    const { data } = await studentApi.getBindingOptions(inviteCode.value.trim(), studentName.value.trim())
-    rosterOptions.value = data.data.students || []
-    if (rosterOptions.value.length === 1) selectedRosterId.value = rosterOptions.value[0].id
-    if (!rosterOptions.value.length) message.value = '没有找到可绑定的同名名册，请核对邀请码和姓名，或联系老师检查名册。'
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '查询班级名册失败。')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function bindStudent() {
-  if (!selectedRosterId.value) {
-    error.value = '请先查询并选择本人姓名。'
-    return
-  }
-  error.value = ''
-  loading.value = true
-  try {
-    const { data } = await studentApi.bind(inviteCode.value.trim(), studentName.value.trim(), selectedRosterId.value)
-    binding.value = data.data
-    bindingRequired.value = false
-    message.value = `已绑定 ${data.data.class_name || '班级'} · ${data.data.student_name || studentName.value}`
-    await auth.refreshIdentity()
-    await loadStudents()
-    await loadAssignments()
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '绑定失败，请确认该名册尚未被其他账号绑定。')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function claimFamilyBinding() {
-  if (!familyCode.value.trim()) {
-    error.value = '请填写家庭关系码。'
-    return
-  }
-  error.value = ''
-  loading.value = true
-  try {
-    const { data } = await studentApi.claimFamilyInvite(
-      familyCode.value.trim(), familyRelationship.value,
-    )
-    familyCode.value = ''
-    message.value = data.data.already_bound ? '该家庭关系已经存在。' : '家庭关系已建立。'
-    await auth.refreshIdentity()
-    await loadStudents()
-    await loadAssignments()
-    bindingRequired.value = !students.value.length
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '家庭绑定失败，请核对关系码及关系类型。')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function createFamilyInvite() {
-  if (!selectedStudentId.value) return
-  error.value = ''
-  try {
-    const { data } = await studentApi.createFamilyInvite(selectedStudentId.value)
-    familyInviteCode.value = data.data.code
-    message.value = '已生成一次性家庭关系码；请只发送给实际家庭成员。'
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(data.data.code).catch(() => undefined)
-    }
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '生成家庭关系码失败。')
-  }
-}
-
-function openSubmit(assignment: StudentAssignment) {
-  if (assignment.variant_mode && !assignment.variant_available) {
-    error.value = assignment.variant_message || '老师尚未为当前学生准备好这项作业，请联系老师。'
-    return
-  }
-  activeAssignmentId.value = activeAssignmentId.value === assignment.id ? null : assignment.id
-  selectedFiles.value = []
-  submissionKey.value = ''
-  error.value = ''
-}
-
-function onFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  const files = Array.from(input.files || [])
-  if (files.length > 9) {
-    error.value = '整份作业最多一次选择 9 张图片。'
-    selectedFiles.value = []
-  } else {
-    const supportedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/bmp'])
-    const invalid = files.find((file) => !supportedTypes.has(file.type) || file.size > 10 * 1024 * 1024)
-    selectedFiles.value = invalid ? [] : files
-    submissionKey.value = ''
-    error.value = invalid
-      ? (invalid.size > 10 * 1024 * 1024 ? '单张图片不能超过 10MB。' : '仅支持 JPG、PNG、GIF、BMP 图片。')
-      : ''
-  }
-}
-
-async function submitAssignment(assignment: StudentAssignment) {
-  error.value = ''
-  message.value = ''
-  if (!selectedFiles.value.length || selectedFiles.value.length > 9) {
-    error.value = '请一次选择 1 至 9 张整份作业图片。'
-    return
-  }
-  submitting.value = true
-  try {
-    if (!submissionKey.value) {
-      const nonce = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
-      submissionKey.value = `web_${nonce}`
-    }
-    const form = new FormData()
-    selectedFiles.value.forEach((file) => form.append('files', file, file.name))
-    form.append('subject', assignment.subject)
-    form.append('grade', assignment.grade)
-    form.append('mode', 'vision')
-    form.append('assignment_id', String(assignment.id))
-    if (assignment.student_id || selectedStudentId.value) {
-      form.append('student_id', String(assignment.student_id || selectedStudentId.value))
-    }
-    const { data } = await studentApi.submitAssignment(form, submissionKey.value)
-    message.value = `已一次性提交 ${data.data.image_count || selectedFiles.value.length} 张图片，批改任务已创建。`
-    selectedFiles.value = []
-    submissionKey.value = ''
-    activeAssignmentId.value = null
-    await loadAssignments()
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '提交失败，请检查图片和学生绑定后重试。')
-  } finally {
-    submitting.value = false
-  }
-}
-
-function revokeImageUrls() {
-  imageUrls.value.forEach((url) => URL.revokeObjectURL(url))
-  imageUrls.value = []
-}
-
-async function showResult(taskId: string) {
-  error.value = ''
-  message.value = ''
-  result.value = null
-  retryStatus.value = null
-  resultTaskId.value = taskId
-  revokeImageUrls()
-  try {
-    const statusResponse = await studentApi.getStatus(taskId)
-    retryStatus.value = statusResponse.data.data
-    const taskStatus = statusResponse.data.data.status
-    if (taskStatus !== 'SUCCESS') {
-      if (taskStatus === 'WAIT_REVIEW' || taskStatus === 'UNKNOWN_LAYOUT') {
-        message.value = taskStatus === 'WAIT_REVIEW'
-          ? '本地括号识别结束，等待教师复核。未确认项不算错题，无需重复提交。'
-          : '页面未与本次作业完整匹配。请核对试卷后在原作业重新拍照提交，或联系教师检查模板；不会自动调用付费模型。'
-        return
-      }
-      message.value = taskStatus === 'FAILED'
-        ? (statusResponse.data.data.failure_message || '本次批改失败，未生成有效成绩。')
-        : `作业状态：${statusLabel(taskStatus)}。批改完成后可在此查看结果。`
-      return
-    }
-    const { data } = await studentApi.getResult(taskId)
-    result.value = data.data
-    if (!data.data.results?.length) {
-      result.value = null
-      message.value = '批改任务已完成，但没有可显示的题目成绩，请联系老师复核。'
-    }
-  } catch (requestError: any) {
+    loading.value = true;
+    error.value = '';
+    void loadMistakes(studentId, request);
     try {
-      const { data } = await studentApi.getStatus(taskId)
-      message.value = `作业状态：${statusLabel(data.data.status)}。批改完成后可在此查看结果。`
-    } catch {
-      error.value = apiError(requestError, '暂时无法读取批改结果。')
+        const response = await studentApi.getAssignments(studentId);
+        if (request !== serial)
+            return;
+        applyAssignmentList(Array.isArray(response.data.data) ? response.data.data : [], requestVersion);
+        assignmentsLoaded.value = true;
+        if (!subjects.value.includes(subject.value))
+            subject.value = '';
     }
-  }
+    catch (err: any) {
+        if (request === serial)
+            error.value = apiError(err, '暂时无法读取作业，请重试。');
+    }
+    finally {
+        if (request === serial)
+            loading.value = false;
+    }
 }
-
-async function retryFailedTask() {
-  const taskId = retryStatus.value?.task_id
-  if (!taskId || !retryStatus.value?.can_retry || submitting.value) return
-  const confirmed = window.confirm('上次请求的远端处理/计费状态可能未知。手动重试可能重复计费，系统不会自动重试。仍要继续吗？')
-  if (!confirmed) return
-  submitting.value = true
-  error.value = ''
-  try {
-    await homeworkApi.retryTask(taskId)
-    message.value = '任务已重新排队；如再次超时，请勿连续重复点击。'
-    await showResult(taskId)
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '任务未能重新排队。')
-  } finally {
-    submitting.value = false
-  }
+async function loadMistakes(studentId: number, request: number) {
+    loadingMistakes.value = true;
+    try {
+        const response = await paperApi.studentMistakes(studentId);
+        if (request === serial)
+            mistakes.value = response.items || [];
+    }
+    catch {
+        if (request === serial)
+            mistakeError.value = true;
+    }
+    finally {
+        if (request === serial)
+            loadingMistakes.value = false;
+    }
 }
-
+async function loadWorkspace() {
+    loading.value = true;
+    error.value = '';
+    try {
+        if (auth.user?.role === 'student')
+            binding.value = (await studentApi.getBinding()).data.data;
+        students.value = ((await studentApi.getMyStudents()).data.data || []).filter(item => item.status === 'active');
+        bindingRequired.value = auth.user?.role === 'student' && !binding.value?.is_bound && !students.value.length;
+        selectedStudentId.value = students.value.some(item => item.student_id === binding.value?.student_id) ? binding.value!.student_id! : students.value.length === 1 ? students.value[0].student_id : null;
+        if (!bindingRequired.value)
+            await loadAssignments();
+    }
+    catch (err: any) {
+        error.value = apiError(err, '读取学生身份失败，请重试。');
+    }
+    finally {
+        loading.value = false;
+    }
+}
+async function changeStudent(event: Event) {
+    const element = event.target as HTMLSelectElement;
+    if (!mayDiscard()) {
+        element.value = String(selectedStudentId.value || '');
+        return;
+    }
+    activeAssignmentId.value = null;
+    highlightedAssignmentId.value = null;
+    submissionAssignment.value = null;
+    observedTaskStates.value = {};
+    familyInviteCode.value = ''; familyCode.value = ''; familyNotice.value = ''; familyError.value = '';
+    assignments.value = [];
+    assignmentsLoaded.value = false;
+    mistakes.value = [];
+    clearResult();
+    notice.value = '';
+    subject.value = '';
+    status.value = 'all';
+    selectedStudentId.value = Number(element.value) || null;
+    await loadAssignments();
+}
+async function refreshAssignments() {
+    if (!mayDiscard())
+        return;
+    activeAssignmentId.value = null;
+    submissionAssignment.value = null;
+    await loadAssignments();
+}
+async function createFamilyInvite() {
+    if (!selectedStudentId.value || familyBusy.value)
+        return;
+    familyBusy.value = true;
+    error.value = '';
+    familyError.value = ''; familyNotice.value = '';
+    const studentId = selectedStudentId.value;
+    try {
+        const response = await studentApi.createFamilyInvite(studentId);
+        if (selectedStudentId.value === studentId) {
+            familyInviteCode.value = response.data.data.code;
+            familyNotice.value = '家庭成员邀请已生成。';
+        }
+    }
+    catch (err: any) {
+        if (selectedStudentId.value === studentId) {
+            error.value = apiError(err, '家庭邀请暂时无法生成。');
+            familyError.value = error.value;
+        }
+    }
+    finally {
+        familyBusy.value = false;
+    }
+}
+async function claimFamilyInvite() {
+    if (!familyCode.value.trim() || familyBusy.value || !mayDiscard())
+        return;
+    familyBusy.value = true;
+    error.value = '';
+    familyError.value = ''; familyNotice.value = '';
+    activeAssignmentId.value = null;
+    clearResult();
+    try {
+        await studentApi.claimFamilyInvite(familyCode.value.trim(), familyRelationship.value);
+        familyCode.value = '';
+        familyInviteCode.value = '';
+        await auth.refreshIdentity();
+        await loadWorkspace();
+        notice.value = '家庭关系已建立。';
+        familyNotice.value = notice.value;
+    }
+    catch (err: any) {
+        error.value = apiError(err, '家庭关联失败，请核对邀请码。');
+        familyError.value = error.value;
+    }
+    finally {
+        familyBusy.value = false;
+    }
+}
+async function openSubmit(item: StudentAssignment) {
+    if (activeAssignmentId.value === item.id) {
+        await nextTick();
+        uploader.value?.focus?.();
+        return;
+    }
+    if (!mayDiscard())
+        return;
+    if ((item.submitted || item.task_id || isReview(item.task_status)) && item.task_status !== 'UNKNOWN_LAYOUT') {
+        error.value = '这份作业已有提交，请查看原任务状态。';
+        return;
+    }
+    if (item.variant_mode && !item.variant_available) {
+        error.value = item.variant_message || '本次作业尚未就绪，请联系老师。';
+        return;
+    }
+    error.value = '';
+    clearResult();
+    submissionAssignment.value = { ...item };
+    activeAssignmentId.value = item.id;
+    await nextTick();
+    uploader.value?.focus?.();
+}
+function closeSubmission() {
+    if (!mayDiscard()) return;
+    activeAssignmentId.value = null;
+    submissionAssignment.value = null;
+}
+async function onSubmitted(response: {
+    task_id: string;
+    status: string;
+    image_count: number;
+}) {
+    const item = activeAssignment.value;
+    const id = selectedStudentId.value, request = serial;
+    const requestVersion = observationVersion;
+    if (item) {
+        item.submitted = true;
+        item.task_id = response.task_id;
+        item.task_status = response.status;
+        assignments.value = assignments.value.map(assignment => assignment.id === item.id ? { ...assignment, submitted: true, task_id: response.task_id, task_status: response.status } : assignment);
+    }
+    notice.value = `已收到整份作业，共 ${response.image_count} 张照片。请保留任务编号：${response.task_id}。`;
+    // The server receipt is authoritative even if the following list refresh fails.
+    if (id) {
+        try {
+            const response = await studentApi.getAssignments(id);
+            if (id === selectedStudentId.value && request === serial) {
+                applyAssignmentList(Array.isArray(response.data.data) ? response.data.data : [], requestVersion);
+                assignmentsLoaded.value = true;
+            }
+        }
+        catch {
+            if (id === selectedStudentId.value)
+                notice.value += ' 作业列表暂未刷新，请稍后重试。';
+        }
+    }
+}
+async function showResult(taskId: string) {
+    clearResult();
+    const request = resultSerial;
+    const studentId = selectedStudentId.value;
+    const assignmentIds = assignments.value.filter(item => item.task_id === taskId).map(item => item.id);
+    const current = () => request === resultSerial && studentId === selectedStudentId.value
+        && (!assignmentIds.length || assignments.value.some(item => assignmentIds.includes(item.id) && item.task_id === taskId));
+    const observe = (state: string) => { observedTaskStates.value = { ...observedTaskStates.value, [taskId]: { state, version: ++observationVersion } }; };
+    resultTaskId.value = taskId;
+    resultBusy.value = true;
+    try {
+        const response = (await studentApi.getStatus(taskId)).data.data;
+        if (!current())
+            return;
+        const taskStatus = typeof response?.status === 'string' && response.status.trim() ? response.status : 'RESULT_PENDING';
+        observe(taskStatus === 'SUCCESS' ? 'RESULT_PENDING' : taskStatus);
+        if (taskStatus !== 'SUCCESS') {
+            resultNotice.value = isReview(taskStatus) ? '老师正在核对这份作业。复核完成前不计作错题，也不显示分数，无需重复提交。' : `${taskLabel(taskStatus)}。可稍后刷新查看。`;
+            return;
+        }
+        const data = (await studentApi.getResult(taskId)).data.data;
+        if (!current())
+            return;
+        if (!data.results?.length) {
+            resultNotice.value = '暂时没有可展示的题目反馈，请联系老师。';
+            return;
+        }
+        result.value = data;
+        if (data.results.some(item => !trustedQuestion(item)))
+            observe('HOLD_REVIEW');
+        else
+            observe('SUCCESS');
+        if (!trustedSummary(data))
+            resultNotice.value = data.results.some(item => !trustedQuestion(item)) ? '部分题目仍待核对，暂不展示总分和正确率。' : '总分尚未确认，暂不展示总分和正确率。';
+    }
+    catch (err: any) {
+        if (current())
+            resultError.value = apiError(err, '暂时无法读取结果，请重试。');
+    }
+    finally {
+        if (request === resultSerial) {
+            resultBusy.value = false;
+            await nextTick();
+            if (current()) document.getElementById('feedback-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+}
 async function loadOriginalImages() {
-  if (!resultTaskId.value || loadingImages.value) return
-  loadingImages.value = true
-  revokeImageUrls()
-  try {
-    for (let index = 0; index < 9; index += 1) {
-      try {
-        const response = await studentApi.getOriginalImage(resultTaskId.value, index)
-        imageUrls.value.push(URL.createObjectURL(response.data))
-      } catch (requestError: any) {
-        if (requestError.response?.status === 404 && index > 0) break
-        throw requestError
-      }
+    if (imagesBusy.value || !resultTaskId.value)
+        return;
+    const taskId = resultTaskId.value, request = resultSerial;
+    imagesBusy.value = true;
+    resultError.value = '';
+    revokeOriginals();
+    try {
+        for (let index = 0; index < 9; index++) {
+            try {
+                const response = await studentApi.getOriginalImage(taskId, index);
+                if (request !== resultSerial)
+                    return;
+                originalImages.value.push(URL.createObjectURL(response.data));
+            }
+            catch (err: any) {
+                if (index > 0 && err.response?.status === 404)
+                    break;
+                throw err;
+            }
+        }
     }
-    if (!imageUrls.value.length) message.value = '当前任务没有可预览的原始图片。'
-  } catch (requestError: any) {
-    error.value = apiError(requestError, '读取原始作业图片失败。')
-  } finally {
-    loadingImages.value = false
-  }
+    catch (err: any) {
+        if (request === resultSerial)
+            resultError.value = apiError(err, '读取本人作业照片失败。');
+    }
+    finally {
+        imagesBusy.value = false;
+    }
 }
-
-function statusLabel(status?: string | null) {
-  const labels: Record<string, string> = {
-    SUCCESS: '已完成', PROCESSING: '处理中', GRADING: '批改中', PENDING: '排队中',
-    FAILED: '处理失败', CANCELLED: '已取消',
-    WAIT_REVIEW: '答案待教师复核', UNKNOWN_LAYOUT: '页面未匹配，请重拍或联系教师',
-  }
-  return status ? labels[status] || status : '待提交'
+function closePaper() { paperSerial += 1; paperBusy.value = false; paperDialog.value?.close(); if (paperUrl.value)
+    URL.revokeObjectURL(paperUrl.value); paperUrl.value = ''; }
+async function openPaper(item: StudentAssignment) {
+    closePaper();
+    const request = paperSerial;
+    paperTitle.value = item.title;
+    paperFormat.value = (item.original_format || '').toLowerCase();
+    paperError.value = '';
+    paperInline.value = false;
+    paperBusy.value = true;
+    paperDialog.value?.showModal();
+    const studentId = item.student_id || selectedStudentId.value;
+    if (!studentId) {
+        paperError.value = '请先选择本人学生身份。';
+        paperBusy.value = false;
+        return;
+    }
+    try {
+        const response = await studentApi.getPublishedPaper(item.id, studentId);
+        if (request !== paperSerial)
+            return;
+        const mime = response.data.type.split(';')[0];
+        paperInline.value = (paperFormat.value === 'pdf' && mime === 'application/pdf') || (['png', 'jpg', 'jpeg'].includes(paperFormat.value) && ['image/png', 'image/jpeg'].includes(mime));
+        paperUrl.value = URL.createObjectURL(response.data);
+    }
+    catch (err: any) {
+        if (request === paperSerial)
+            paperError.value = err.response?.status === 404 ? '试卷不存在或当前身份无权访问。' : err.response?.status === 409 ? '发布试卷版本需老师核对，请联系老师。' : '试卷暂时无法读取，请重试。';
+    }
+    finally {
+        if (request === paperSerial)
+            paperBusy.value = false;
+    }
 }
-
-function subjectLabel(subject: string) {
-  const names: Record<string, string> = {
-    math: '数学', chinese: '语文', english: '英语', physics: '物理',
-    chemistry: '化学', biology: '生物', history: '历史', geography: '地理',
-  }
-  return names[subject] || subject
-}
-
-onMounted(loadWorkspace)
-const originalUrls: string[] = []
-async function downloadOriginal(assignment: StudentAssignment) {
-  try {
-    const response=await client.get(`/teacher-v2/assignments/${assignment.id}/source`,{
-      params:{student_id:assignment.student_id||selectedStudentId.value},responseType:'blob'})
-    const url=URL.createObjectURL(response.data);originalUrls.push(url)
-    const a=document.createElement('a');a.href=url;a.download=`原卷.${assignment.original_format||'pdf'}`;a.click()
-  } catch(e:any) {error.value=e.response?.status===404?'原卷不存在或无权查看':'原卷读取失败，请稍后重试'}
-}
-onBeforeUnmount(()=>{revokeImageUrls();originalUrls.forEach(u=>URL.revokeObjectURL(u))})
+onMounted(() => { void loadWorkspace(); window.addEventListener('beforeunload', beforeUnload); clock = setInterval(() => { now.value = Date.now(); }, 60000); });
+onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEventListener('beforeunload', beforeUnload); if (clock)
+    clearInterval(clock); });
 </script>
 
 <template>
-  <div class="student-workspace">
-    <header class="student-page-heading">
-      <div><p class="eyebrow">学生工作空间</p><h1>我的作业</h1><p class="muted">查看老师布置的作业，一次提交整份作业图片，并查看批改反馈。</p></div>
-      <div v-if="students.length" class="student-picker">
-        <label for="student-picker">当前学生</label>
-        <select id="student-picker" v-model.number="selectedStudentId" @change="loadAssignments">
-          <option v-for="student in students" :key="student.student_id" :value="student.student_id">{{ student.name }}<template v-if="student.relationship_label">（{{ student.relationship_label }}）</template></option>
-        </select>
-      </div>
-    </header>
-
-    <div v-if="error" class="student-alert student-alert-error" role="alert">{{ error }}</div>
-    <div v-if="message" class="student-alert student-alert-success" role="status">{{ message }}</div>
-    <section v-if="retryStatus?.can_retry" class="student-alert student-alert-error" role="alert">
-      <p>{{ retryStatus.failure_message || '本次批改失败，未生成有效成绩。' }}</p>
-      <button class="btn btn-secondary btn-sm" :disabled="submitting" @click="retryFailedTask">{{ submitting ? '正在排队…' : '我已了解可能重复计费，手动重试' }}</button>
-    </section>
-
-    <section v-if="bindingRequired" class="student-panel student-binding-panel">
-      <div class="student-panel-heading"><div><p class="eyebrow">首次使用</p><h2>绑定班级学生身份</h2><p class="muted">输入老师提供的邀请码和学生本人姓名，选择匹配的名册记录。</p></div></div>
-      <div class="student-binding-form">
-        <label>班级邀请码<input v-model="inviteCode" class="form-input" maxlength="12" autocomplete="off" placeholder="例如：AB12CD34" /></label>
-        <label>学生姓名<input v-model="studentName" class="form-input" maxlength="100" autocomplete="name" placeholder="按班级名册填写" /></label>
-        <button class="btn btn-primary" :disabled="loading" @click="findRosterOptions">{{ loading ? '查询中…' : '查询名册' }}</button>
-      </div>
-      <fieldset v-if="rosterOptions.length" class="roster-options">
-        <legend>请选择本人名册记录</legend>
-        <label v-for="option in rosterOptions" :key="option.id" class="roster-option">
-          <input v-model="selectedRosterId" type="radio" :value="option.id" />
-          <span>{{ option.student_name }}<small v-if="option.student_no"> · 学号 {{ option.student_no }}</small></span>
-        </label>
-        <button class="btn btn-primary" :disabled="loading || !selectedRosterId" @click="bindStudent">{{ loading ? '绑定中…' : '确认绑定' }}</button>
-      </fieldset>
-      <div class="student-binding-form family-binding-form">
-        <label>家庭关系码<input v-model="familyCode" class="form-input" maxlength="32" autocomplete="off" placeholder="由已绑定学生的家庭成员提供" /></label>
-        <label>与学生的关系<select v-model="familyRelationship" class="form-input"><option value="father">父亲</option><option value="mother">母亲</option><option value="guardian">监护人</option><option value="paternal_grandfather">祖父</option><option value="paternal_grandmother">祖母</option><option value="maternal_grandfather">外祖父</option><option value="maternal_grandmother">外祖母</option><option value="other">其他</option></select></label>
-        <button class="btn btn-secondary" :disabled="loading" @click="claimFamilyBinding">{{ loading ? '绑定中…' : '确认家庭绑定' }}</button>
-      </div>
-    </section>
-
-    <section v-else class="student-panel">
-      <div class="student-panel-heading student-assignment-heading">
-        <div><p class="eyebrow">班级作业</p><h2>作业列表</h2></div>
-        <div class="student-date-tabs" role="tablist" aria-label="作业日期筛选">
-          <button :class="{ active: dateView === 'today' }" @click="dateView = 'today'">今日</button>
-          <button :class="{ active: dateView === 'history' }" @click="dateView = 'history'">历史</button>
-          <button :class="{ active: dateView === 'all' }" @click="dateView = 'all'">全部</button>
-        </div>
-      </div>
-      <div v-if="students.length" class="family-invite-row">
-        <button class="btn btn-secondary btn-sm" @click="createFamilyInvite">生成家庭成员邀请</button>
-        <code v-if="familyInviteCode">{{ familyInviteCode }}</code>
-        <small v-if="familyInviteCode" class="muted">一次性使用；发给实际家庭成员后及时作废/重置。</small>
-      </div>
-      <p v-if="loading" class="student-empty">正在读取作业…</p>
-      <p v-else-if="!visibleAssignments.length" class="student-empty">{{ dateView === 'today' ? '今天暂无作业，切换“历史”查看之前的作业。' : '当前没有可显示的作业。' }}</p>
-      <div v-else class="student-assignment-list">
-        <article v-for="assignment in visibleAssignments" :key="`${assignment.id}-${assignment.student_id || 'self'}`" class="student-assignment-card">
-          <div class="student-assignment-topline"><span class="student-subject">{{ subjectLabel(assignment.subject) }}</span><span>{{ assignment.assignment_date || '未设日期' }}</span></div>
-          <h3>{{ assignment.title }}</h3>
-          <p class="student-assignment-meta">{{ assignment.class_name }} · {{ assignment.student_name || students.find((item) => item.student_id === selectedStudentId)?.name || '本人' }} · {{ assignment.grade }}</p>
-          <p v-if="assignment.description" class="student-assignment-description">{{ assignment.description }}</p>
-          <div v-if="assignment.variant_mode" class="student-variant-content">
-            <p v-if="!assignment.variant_available" class="student-variant-unavailable">{{ assignment.variant_message || '老师尚未为当前学生准备好这项作业，请联系老师。' }}</p>
-            <template v-else>
-              <h4>本次练习内容</h4>
-              <ol><li v-for="question in assignment.variant_questions" :key="question.id">第{{ question.number }}题 · <strong v-if="question.requirement_label">{{ question.requirement_label }} · </strong>{{ question.question_text }}<small>（{{ question.max_score }} 分）</small></li></ol>
-            </template>
-          </div>
-          <div class="student-assignment-actions">
-            <button v-if="assignment.assignment_mode==='uniform_mixed'" class="btn btn-secondary btn-sm" @click="downloadOriginal(assignment)">下载同一原卷</button>
-            <span class="student-status" :class="assignment.submitted ? 'is-submitted' : 'is-pending'">{{ assignment.submitted ? statusLabel(assignment.task_status) : '待提交' }}</span>
-            <button v-if="assignment.submitted && assignment.task_id" class="btn btn-secondary btn-sm" @click="showResult(assignment.task_id)">查看批改结果</button>
-            <button v-if="assignment.submitted && assignment.task_status === 'UNKNOWN_LAYOUT'" class="btn btn-primary btn-sm" @click="openSubmit(assignment)">核对试卷后重新拍照提交</button>
-            <button v-if="!assignment.submitted && (!assignment.variant_mode || assignment.variant_available)" class="btn btn-primary btn-sm" @click="openSubmit(assignment)">一次提交整份作业</button>
-            <span v-else-if="!assignment.submitted" class="muted">版本未就绪</span>
-          </div>
-          <div v-if="activeAssignmentId === assignment.id" class="student-upload-box">
-            <label class="student-file-picker">选择作业照片<input type="file" accept="image/jpeg,image/png,image/gif,image/bmp" multiple @change="onFileChange" /></label>
-            <p class="muted">1–9 张图片会作为同一份作业一次提交；请按页面顺序选全。</p>
-            <ul v-if="selectedFiles.length" class="student-file-list"><li v-for="file in selectedFiles" :key="`${file.name}-${file.lastModified}`">{{ file.name }}</li></ul>
-            <button class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment(assignment)">{{ submitting ? '提交中…' : `提交 ${selectedFiles.length} 张图片` }}</button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="result" class="student-panel student-result-panel">
-      <div class="student-panel-heading"><div><p class="eyebrow">批改反馈</p><h2>批改结果</h2></div><button class="btn btn-secondary btn-sm" @click="loadOriginalImages">{{ loadingImages ? '读取中…' : '查看原始作业图片' }}</button></div>
-      <div class="student-score-summary"><strong>{{ result.total_score }}<small> / {{ result.total_max_score }}</small></strong><span>正确率 {{ result.total_accuracy == null ? '待统计' : `${Math.round(result.total_accuracy)}%` }}</span></div>
-      <div v-if="imageUrls.length" class="student-original-images"><img v-for="(url, index) in imageUrls" :key="url" :src="url" :alt="`第 ${index + 1} 张原始作业图片`" /></div>
-      <div v-if="result.results?.length" class="student-question-list">
-        <article v-for="item in result.results" :key="item.question_block_id" class="student-question-card">
-          <div><strong>第 {{ item.question_no }} 题</strong><span :class="item.result === 'correct' ? 'question-correct' : 'question-review'">{{ item.result === 'correct' ? '正确' : '需订正' }}</span></div>
-          <p v-if="item.question_text">{{ item.question_text }}</p>
-          <p v-if="item.comment || item.analysis" class="muted">{{ item.comment || item.analysis }}</p>
-          <small>得分 {{ item.score }} / {{ item.max_score }}</small>
-        </article>
-      </div>
-    </section>
+  <div class="student-v1">
+    <header class="page-header">
+<div>
+<p class="date-line">{{ headingDate }} · 学生学习工作台</p>
+<h1>我的作业<span>{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '查看作业、完成练习、记录进步' }}</span>
+</h1>
+</div>
+<div class="page-account-actions">
+<label v-if="students.length" class="identity-picker">当前学生<select :value="selectedStudentId || ''" :disabled="uploader?.busy" @change="changeStudent">
+<option value="">请选择本人身份</option>
+<option v-for="(item, index) in students" :key="item.student_id" :value="item.student_id">{{ studentIdentityLabel(item, binding, index) }}</option>
+</select>
+</label>
+<StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="uploader?.busy">
+<template #family>
+<p v-if="familyError" class="notice error" role="alert">{{ familyError }}</p><p v-if="familyNotice" class="notice success" role="status">{{ familyNotice }}</p>
+<StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" embedded @create="createFamilyInvite" @claim="claimFamilyInvite" />
+</template>
+</StudentProfilePanel>
+</div>
+</header>
+    <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+<p v-if="notice" id="submission-receipt" class="notice success" role="status">{{ notice }}</p>
+    <section v-if="bindingRequired" class="panel binding-panel">
+<p class="eyebrow">开始学习之前</p>
+<h2>班级身份待开通</h2>
+<p>请联系老师核对所属班级、学号和学生序号，开通你的学习身份。</p>
+<p>学生序号是老师分配的独立固定编号，与学号不同。已获得家庭关系码的账户可继续完成家庭关联。</p>
+<button type="button" :disabled="loading" @click="loadWorkspace">重新核对身份</button>
+<StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" @create="createFamilyInvite" @claim="claimFamilyInvite" />
+</section>
+    <StudentWorkbench v-else>
+      <template #navigation>
+        <StudentStudyNavigation v-model="subject" page="assignments" :subjects="subjects" :counts="subjectCounts" />
+      </template>
+      <section class="panel assignments-panel" aria-labelledby="assignments-heading">
+        <div class="section-heading">
+<div>
+<h2 id="assignments-heading">作业清单 <span class="section-subject">{{ subject ? subjectLabel(subject) : '全部学科' }}</span><span v-if="assignmentsLoaded" class="list-count">{{ visibleAssignments.length }} 份</span></h2>
+</div>
+<button class="text-button" :disabled="loading || !!uploader?.busy" @click="refreshAssignments">{{ loading ? '读取中…' : '刷新列表' }}</button>
+</div>
+        <nav class="status-tabs" aria-label="作业状态筛选">
+          <button v-for="item in assignmentFilters" :key="item.value" type="button" :aria-pressed="status === item.value" @click="status=item.value">{{ item.label }}</button>
+        </nav>
+        <div class="filters">
+<label class="search"><span class="sr-only">搜索作业</span><input v-model="search" placeholder="搜索作业标题或班级" type="search" />
+</label>
+<button v-if="subject || status !== 'all' || search" class="text-button" @click="clearFilters">清除筛选</button>
+</div>
+        <p v-if="loading" class="empty" role="status">正在读取本人作业…</p>
+<p v-else-if="!selectedStudentId" class="empty">请先选择已绑定的学生身份。</p>
+<p v-else-if="!visibleAssignments.length && !error" class="empty">当前范围没有作业。可以试试其他学科或状态。</p>
+        <div v-else class="assignment-list">
+<article v-for="item in visibleAssignments" :id="`assignment-${item.id}`" :key="`${item.id}-${item.student_id}`" tabindex="-1" class="assignment-card" :class="{ highlighted: highlightedAssignmentId===item.id }" :aria-labelledby="`assignment-title-${item.id}`">
+<div class="assignment-overview">
+  <div class="assignment-info">
+    <div class="card-top"><span class="subject-pill">{{ subjectLabel(item.subject) }}</span><span class="status-pill" :class="assignmentGroup(item)">{{ assignmentGroup(item) === 'todo' ? '待提交' : taskLabel(item.task_status) }}</span></div>
+    <h3 :id="`assignment-title-${item.id}`">{{ item.title }}</h3>
+    <p class="meta">{{ item.class_name }}<template v-if="item.grade"> · {{ gradeLabel(item.grade) }}</template></p>
+    <p class="deadline" :class="{overdue: assignmentGroup(item)==='todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now}"><span v-if="assignmentGroup(item)==='todo' && deadlineHint(item.due_at, now)">{{ deadlineHint(item.due_at, now) }} · </span>截止：{{ dateLabel(item.due_at) }}</p>
+  </div>
+</div>
+<details v-if="item.description || (item.variant_mode && item.variant_available && item.variant_questions?.length)" class="requirements">
+<summary>查看作业说明<template v-if="item.variant_mode && item.variant_available && item.variant_questions?.length">与题目要求 · {{ item.variant_questions.length }} 题</template></summary>
+<p v-if="item.description" class="description">{{ item.description }}</p>
+<ol v-if="item.variant_mode && item.variant_available && item.variant_questions?.length">
+<li v-for="question in item.variant_questions" :key="question.id">
+<span class="requirement" :class="{optional:question.requirement==='optional'}">{{ question.requirement === 'optional' ? '选做' : question.requirement === 'required' ? '必做' : '要求待老师确认' }}</span>第 {{ question.number }} 题 · {{ question.question_text }}<ul v-if="question.options?.length">
+<li v-for="(option,index) in question.options" :key="index">{{ option }}</li>
+</ul>
+</li>
+</ol>
+</details>
+<p v-if="item.variant_mode && !item.variant_available" class="muted">{{ item.variant_message || '作业版本尚未就绪，请联系老师。' }}</p>
+<div class="card-actions">
+<button v-if="assignmentGroup(item)==='todo' || item.task_status==='UNKNOWN_LAYOUT'" :disabled="!!uploader?.busy || (item.variant_mode && !item.variant_available)" @click="openSubmit(item)">{{ item.task_status==='UNKNOWN_LAYOUT' ? '核对后重新拍照' : '拍照提交' }}</button>
+<button v-if="item.task_id" :class="{ secondary: item.task_status==='UNKNOWN_LAYOUT' }" :disabled="resultBusy" @click="showResult(item.task_id)">{{ assignmentGroup(item)==='completed' ? '查看批改反馈' : '查看处理进度' }}</button>
+<button v-if="item.assignment_mode==='uniform_mixed'" class="secondary" @click="openPaper(item)">查看试卷 / 打印</button>
+<span v-if="assignmentGroup(item)==='review'" class="action-note">等待核对，无需重复提交</span>
+</div>
+</article>
+</div>
+      </section>
+      <StudentPhotoSubmission v-if="activeAssignment && selectedStudentId" id="student-submission" :key="`${activeAssignment.id}-${selectedStudentId}`" ref="uploader" :assignment="activeAssignment" :student-id="selectedStudentId" @submitted="onSubmitted" @cancel="closeSubmission" />
+      <section v-if="resultTaskId" class="panel feedback" aria-labelledby="feedback-heading">
+<div class="section-heading">
+<h2 id="feedback-heading">作业反馈</h2>
+<button class="text-button" :disabled="resultBusy" @click="showResult(resultTaskId)">刷新进度</button>
+</div>
+<p class="muted">{{ assignments.find(item => item.task_id === resultTaskId)?.title || resultTaskId }}</p>
+<p v-if="resultBusy" role="status">正在读取作业状态…</p>
+<p v-if="resultNotice" class="review-notice" role="status">{{ resultNotice }}</p>
+<p v-if="resultError" class="notice error" role="alert">{{ resultError }}</p>
+<template v-if="result">
+<div v-if="summaryVisible" class="score">
+<strong>{{ result.total_score }}<small> / {{ result.total_max_score }} 分</small>
+</strong>
+<span v-if="typeof result.total_accuracy === 'number' && Number.isFinite(result.total_accuracy) && result.total_accuracy >= 0 && result.total_accuracy <= 100">正确率 {{ Math.round(result.total_accuracy) }}%</span>
+</div>
+<article v-for="item in result.results" :key="item.question_block_id" class="question-feedback">
+<div>
+<strong>第 {{ item.question_no }} 题</strong>
+<span>{{ questionLabel(item.result) }}</span>
+</div>
+<p>{{ item.question_text }}</p>
+<p v-if="item.student_answer">我的作答：{{ item.student_answer }}</p>
+<p v-if="trustedQuestion(item)" class="muted">得分 {{ item.score }} / {{ item.max_score }}</p>
+<p v-else class="muted">待老师核对，暂不显示分数。</p>
+</article>
+<button class="secondary" :disabled="imagesBusy" @click="loadOriginalImages">{{ imagesBusy ? '读取照片中…' : '查看本人作业照片' }}</button>
+<div class="original-images">
+<img v-for="(url,index) in originalImages" :key="url" :src="url" :alt="`本人第 ${index+1} 张作业照片`" />
+</div>
+</template>
+</section>
+      <template #reminders>
+        <section class="reminder-card">
+<p class="eyebrow">接下来做什么</p>
+<h2>我的待办</h2>
+<div class="reminder-counts">
+<button class="reminder-count" @click="showReminder('todo')">
+<span>待提交作业</span>
+<strong>{{ assignmentsLoaded ? todos.length : '—' }}</strong>
+</button>
+<button class="reminder-count" @click="showReminder('review')">
+<span>等待老师复核</span>
+<strong>{{ assignmentsLoaded ? reviews.length : '—' }}</strong>
+</button>
+</div>
+<p class="muted">点击提醒可定位到对应作业。</p>
+</section>
+        <section v-if="reminders.attention.length" class="reminder-card priority-card">
+<h2>优先处理 <span class="list-count">{{ reminders.attention.length }}</span></h2>
+<button v-for="item in reminders.attention.slice(0,3)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
+<span>{{ item.title }} <span aria-hidden="true">↗</span></span>
+<small>{{ assignmentGroup(item)==='todo' ? `已过截止 · ${dateLabel(item.due_at)}` : taskLabel(item.task_status) }}</small>
+</button>
+</section>
+        <section class="reminder-card">
+<h2>近期截止</h2>
+<p v-if="!assignmentsLoaded" class="muted">作业列表尚未读取成功。</p>
+<p v-else-if="!reminders.upcoming.length" class="muted">暂无已确认截止时间的即将到期作业。</p>
+<button v-for="item in reminders.upcoming.slice(0,3)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
+<span>{{ item.title }} <span aria-hidden="true">↗</span></span>
+<small><template v-if="deadlineHint(item.due_at, now)">{{ deadlineHint(item.due_at, now) }} · </template>{{ dateLabel(item.due_at) }}</small>
+</button>
+</section>
+        <section v-if="reminders.review.length" class="reminder-card">
+<h2>待老师复核 <span class="list-count">{{ reminders.review.length }}</span></h2>
+<button v-for="item in reminders.review.slice(0,2)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
+<span>{{ item.title }} <span aria-hidden="true">↗</span></span><small>等待核对，无需重复提交</small>
+</button>
+<button v-if="reminders.review.length>2" class="text-button" @click="showReminder('review')">查看全部待复核 →</button>
+</section>
+        <section class="reminder-card">
+<p class="eyebrow">错题待办</p>
+<h2>待订正错题</h2>
+<p v-if="!selectedStudentId" class="muted">请先选择本人学生身份。</p>
+<p v-else-if="loadingMistakes" class="muted">正在读取错题…</p>
+<p v-else-if="mistakeError" class="muted">错题待办暂不可用，请到错题库重试。</p>
+<p v-else class="muted">{{ openMistakes.length ? `${openMistakes.length} 道题等待订正` : '当前没有待订正的错题。' }}</p>
+<router-link class="side-link" to="/student/mistakes">进入我的错题库 →</router-link>
+</section>
+        <p class="quiet-note">选做题由你决定是否挑战，未作答不代表做错。</p>
+      </template>
+    </StudentWorkbench>
+    <dialog ref="paperDialog" class="paper-dialog" aria-labelledby="paper-heading" @cancel="closePaper">
+<header class="section-heading">
+<h2 id="paper-heading">{{ paperTitle }}</h2>
+<button class="secondary" @click="closePaper">关闭试卷</button>
+</header>
+<p v-if="paperBusy" role="status">正在读取正式发布的试卷…</p>
+<p v-if="paperError" class="notice error" role="alert">{{ paperError }}</p>
+<template v-if="paperUrl">
+<p class="muted">打开试卷窗口后，可使用 PDF 打印图标或浏览器打印（Ctrl+P）。</p>
+<div class="paper-actions">
+<a v-if="paperInline" :href="paperUrl" target="_blank" rel="noopener noreferrer">打开试卷 / 打印</a>
+<a :href="paperUrl" :download="`${paperTitle}.${paperFormat || 'pdf'}`">下载试卷</a>
+</div>
+<iframe v-if="paperInline && paperFormat==='pdf'" :src="paperUrl" title="正式发布试卷预览">
+</iframe>
+<img v-else-if="paperInline" :src="paperUrl" alt="正式发布的试卷" />
+<p v-else class="muted">此格式不支持浏览器预览，请下载后使用对应软件打开并打印。</p>
+</template>
+</dialog>
   </div>
 </template>
+<style scoped>
+.student-v1{container-type:inline-size;color:#263d32;max-width:1600px;margin:0 auto;padding:6px 0 34px;min-width:0}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}
+.date-line,.eyebrow{color:#6d8275;font-size:12px;letter-spacing:.06em;margin:0 0 10px}
+.page-header h1{font-size:28px;margin:0;letter-spacing:-.04em}
+.page-header h1 span{display:block;margin-top:8px;font-size:13px;font-weight:400;letter-spacing:0;color:#7b8a80}
+.identity-picker{font-size:12px;display:grid;gap:8px;min-width:160px}
+.page-account-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.panel,.reminder-card{background:#fff;border:1px solid #e1e8e1;border-radius:14px;padding:20px;min-width:0}
+.panel{margin-bottom:20px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.section-heading h2,.reminder-card h2{font-size:17px;margin:0;font-weight:650}
+.assignments-panel{container-type:inline-size;padding:16px 18px}
+.section-subject{font-size:11px;font-weight:400;color:#75887a;margin-left:8px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.reminder-card{padding:16px}
+.reminder-card h2{margin-bottom:10px;font-size:15px}
+.list-count{font-size:12px;font-weight:400;color:#75887a;margin-left:7px}
+.student-v1 .status-tabs{display:flex;gap:13px;flex-wrap:wrap;border-bottom:1px solid #e4ebe5}
+.student-v1 .status-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#708176;padding:8px 0;font-size:12px}
+.student-v1 .status-tabs button[aria-pressed=true]{border-color:#185d49;color:#185d49;font-weight:650}
+.student-v1 button:focus-visible,.student-v1 a:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
+.student-v1 button{border:1px solid #185d49;background:#185d49;color:#fff;border-radius:9px;cursor:pointer;padding:10px 15px;font:inherit;font-size:13px}
+.student-v1 button:disabled{opacity:.45;cursor:not-allowed}
+.student-v1 .secondary{background:#fff;color:#365d49;border-color:#d3dfd7}
+.student-v1 .text-button{background:transparent;color:#527565;border:0;padding:4px;font-size:12px}
+.student-v1 input,.student-v1 select{border:1px solid #d8e1da;background:#fff;border-radius:8px;padding:9px 11px;min-height:39px;font:inherit;font-size:13px;color:#365140;box-sizing:border-box;max-width:100%}
+.filters{display:flex;align-items:center;gap:10px;margin-top:10px;padding-bottom:10px;border-bottom:1px solid #edf0eb}
+.filters input{min-height:34px;padding:7px 10px}
+.filters label{display:grid;gap:7px;font-size:12px;color:#7a897e}
+.filters select{min-width:140px}
+.search{flex:1}
+.assignment-list{display:grid;margin-top:0}
+.assignment-card{border:0;border-bottom:1px solid #e4e9e1;border-radius:0;padding:13px 2px;background:#fff;scroll-margin:24px;min-width:0}
+.assignment-card:last-child{border-bottom:0;padding-bottom:0}
+.assignment-card:focus-visible{outline:2px solid #81b09a;outline-offset:5px;border-radius:6px}
+.assignment-card.highlighted{background:#f2f8f3;box-shadow:0 0 0 7px #f2f8f3;border-radius:6px}
+.assignment-overview{min-width:0}
+.assignment-info{min-width:0}
+.card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.assignment-info>.meta{font-size:11px;margin:2px 0 0}
+.subject-pill,.status-pill{font-size:11px;padding:5px 10px;border-radius:6px;background:#eff4f1;color:#56705e}
+.subject-pill{padding:3px 7px}
+.status-pill{background:#f4f3ed;color:#81765c;line-height:1.5;padding:3px 7px}
+.status-pill.review{background:#fcf4df;color:#8e723a}
+.status-pill.completed{background:#e7f3ea;color:#376d4a}
+.status-pill.attention{background:#fbedeb;color:#a7574c}
+.assignment-card h3{font-size:16px;margin:7px 0 4px;line-height:1.5;overflow-wrap:anywhere}
+.meta,.description,.deadline,.muted{font-size:12px;line-height:1.8;color:#7b8b80}
+.description{white-space:pre-line}
+.deadline{margin:3px 0 0;font-size:11px}
+.deadline.overdue{color:#a95a47}
+.card-actions,.paper-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.card-actions button{padding:7px 11px;font-size:12px;min-height:33px}
+.action-note{font-size:11px;color:#8a784e;line-height:1.6}
+.requirements{font-size:13px;color:#57725d;border-radius:8px;margin-top:7px}
+.requirements[open]{background:#f6f8f4;padding:10px}
+.requirements summary{cursor:pointer;font-size:12px;line-height:1.8}
+.requirements ol{padding-left:20px}
+.requirements li{padding:6px 0;line-height:1.8}
+.requirement{display:inline-block;margin-right:8px;background:#e3eee4;padding:0 6px;border-radius:4px;font-size:11px}
+.requirement.optional{background:#f5eedc;color:#8b764b}
+.reminder-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.student-v1 .reminder-count{display:grid;gap:5px;width:100%;padding:8px;border:1px solid #e2eae2;border-radius:8px;background:#f7faf7;color:#5a7061;text-align:left;font-size:11px}
+.reminder-count strong{font-size:22px;font-weight:500;color:#214a35}
+.reminder-counts+.muted{font-size:11px;margin:8px 0 0}
+.student-v1 .deadline-item{display:grid;gap:4px;text-align:left;width:100%;padding:9px 0;background:transparent;border:0;border-bottom:1px solid #edf1eb;color:#36583f;line-height:1.6;font-size:12px}
+.deadline-item>span{display:flex;justify-content:space-between;gap:5px}
+.deadline-item small{font-size:11px;color:#8d9387}
+.priority-card{border-color:#eadbc8;background:#fffcf6}
+.priority-card .deadline-item small{color:#996548}
+.side-link{color:#326f51;text-decoration:none;font-size:13px;display:inline-block;margin-top:10px}
+.quiet-note{color:#8b998d;font-size:11px;line-height:1.8;padding:0 10px}
+.notice{border-radius:9px;padding:14px;font-size:13px;line-height:1.8;overflow-wrap:anywhere;margin:0 0 18px}
+.error{background:#fff1ee;color:#9b453c}
+.success{background:#eaf4eb;color:#39714a}
+.empty{padding:35px 4px;color:#849186;font-size:13px;text-align:center}
+.review-notice{padding:14px;background:#fff8e8;border-radius:8px;color:#8c7547;font-size:13px;line-height:1.8}
+.score{display:flex;justify-content:space-between;align-items:center;margin:25px 0;color:#2e6248}
+.score strong{font-size:35px}
+.score small,.score span{font-size:13px;font-weight:400;color:#7f9286}
+.question-feedback{border-top:1px solid #e5eae4;padding:20px 0;font-size:13px}
+.question-feedback>div{display:flex;justify-content:space-between;gap:12px}
+.question-feedback>div span{color:#8f7c4f;font-size:12px}
+.question-feedback p{line-height:1.8}
+.original-images img{width:100%;margin-top:14px;object-fit:contain}
+.paper-dialog{width:min(1000px,94vw);max-height:94dvh;border:1px solid #d3dfd7;border-radius:16px;padding:24px;color:#365140;box-sizing:border-box}
+.paper-dialog::backdrop{background:rgb(19 35 26 / 60%)}
+.paper-dialog iframe{width:100%;height:65dvh;border:1px solid #d3dfd7;margin-top:16px}
+.paper-dialog img{max-width:100%;display:block;margin:20px auto}
+.paper-actions a{padding:10px 15px;border:1px solid #c6d6cb;border-radius:8px;color:#27613f;text-decoration:none;font-size:13px}
+.binding-fields{display:flex;align-items:end;gap:14px;flex-wrap:wrap;margin-top:24px}
+.binding-fields label{display:grid;gap:8px;font-size:13px}
+.binding-panel p{font-size:13px;line-height:1.8;color:#6c8271}
+.binding-panel fieldset{margin-top:24px;border:1px solid #d3dfd7;border-radius:10px;display:grid;gap:14px;padding:16px}
+.binding-panel fieldset label{font-size:14px;display:flex;align-items:center;gap:8px}
+@container(min-width:470px){
+  .assignment-card{display:grid;grid-template-columns:minmax(0,1fr) 138px;column-gap:14px;align-items:center}
+  .assignment-overview,.requirements,.assignment-card>.muted{grid-column:1}
+  .card-actions{grid-column:2;grid-row:1 / span 3;display:grid;gap:6px;margin:0}
+  .card-actions button{width:100%}
+  .action-note{text-align:center}
+}
+@container(max-width:650px){.page-header{align-items:start;flex-direction:column;gap:12px}
+.page-header h1{font-size:26px}
+.identity-picker{width:100%}
+.page-account-actions{width:100%}
+.page-account-actions .identity-picker{flex:1;min-width:min(160px,100%)}
+.panel{padding:17px}
+.score{flex-wrap:wrap;gap:12px}
+}
+@container(max-width:280px){
+  .filters{flex-direction:column;align-items:stretch}
+  .section-heading{align-items:start;flex-wrap:wrap}
+  .card-actions button{width:100%}
+}
+
+</style>
