@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { studentApi, type StudentAssignment } from '@/api/student';
-import { taskLabel } from '@/student/workbench';
+import { subjectLabel, taskLabel } from '@/student/workbench';
+import { useStudentHandheld } from '@/student/device';
 const props = defineProps<{
     assignment: StudentAssignment;
     studentId: number;
@@ -18,9 +19,12 @@ const emit = defineEmits<{
     ];
 }>();
 const selectedFiles = ref<File[]>([]);
+const handheld = useStudentHandheld();
+const nativeCameraInput = ref<HTMLInputElement | null>(null);
 const submissionDialog = ref<HTMLDialogElement | null>(null);
 const step = ref<'add' | 'review' | 'receipt'>('add');
 const receipt = ref<{ task_id: string; status: string; image_count: number } | null>(null);
+const photoAddButton = ref<HTMLButtonElement | null>(null);
 const uploadPreviews = ref<string[]>([]);
 const uploadError = ref('');
 const cameraDialog = ref<HTMLDialogElement | null>(null);
@@ -29,6 +33,7 @@ const cameraReady = ref(false);
 const cameraBusy = ref(false);
 const cameraError = ref('');
 const photoDialog = ref<HTMLDialogElement | null>(null);
+const reviewDialog = ref<HTMLDialogElement | null>(null);
 const previewPhoto = ref<{
     url: string;
     number: number;
@@ -39,6 +44,8 @@ const submissionKey = ref('');
 const submitting = ref(false);
 // A lost response may still mean a task exists. Preserve that request's exact photos and order.
 const queueLocked = computed(() => submitting.value || !!submissionKey.value);
+// LAN HTTP trials use the operating system's camera picker; live video needs a secure context.
+const liveCameraSupported = computed(() => typeof window === 'undefined' || window.isSecureContext !== false);
 const error = ref('');
 function clearUploadQueue() {
     uploadPreviews.value.forEach((url) => URL.revokeObjectURL(url));
@@ -72,7 +79,7 @@ function onFileChange(event: Event) {
     const input = event.target as HTMLInputElement;
     const added = appendPhotos(Array.from(input.files || []));
     input.value = '';
-    if (added && cameraDialog.value?.open)
+    if (added && selectedFiles.value.length >= 9 && cameraDialog.value?.open)
         closeCamera();
 }
 function removePhoto(index: number) {
@@ -81,6 +88,7 @@ function removePhoto(index: number) {
     URL.revokeObjectURL(uploadPreviews.value[index]);
     selectedFiles.value.splice(index, 1);
     uploadPreviews.value.splice(index, 1);
+    if (!selectedFiles.value.length) step.value = 'add';
     submissionKey.value = '';
     uploadError.value = '';
 }
@@ -93,8 +101,19 @@ function movePhoto(index: number, direction: number) {
     submissionKey.value = '';
 }
 function showPhoto(index: number) {
+    if (index < 0 || index >= uploadPreviews.value.length) return;
     previewPhoto.value = { url: uploadPreviews.value[index], number: index + 1 };
     photoDialog.value?.showModal();
+}
+function openPhotoAdd() {
+    if (queueLocked.value || receipt.value || selectedFiles.value.length >= 9) return;
+    if (handheld.value) { openNativeCamera(); return; }
+    void openCamera();
+}
+function openNativeCamera() {
+    if (queueLocked.value || receipt.value || selectedFiles.value.length >= 9) return;
+    uploadError.value = '';
+    nativeCameraInput.value?.click();
 }
 function stopCamera() {
     cameraSession += 1;
@@ -109,8 +128,9 @@ function closeCamera() {
     stopCamera();
 }
 async function openCamera() {
-    if (queueLocked.value || selectedFiles.value.length >= 9)
+    if (queueLocked.value || receipt.value || selectedFiles.value.length >= 9)
         return;
+    if (handheld.value) { openNativeCamera(); return; }
     stopCamera();
     const session = cameraSession;
     cameraError.value = '';
@@ -168,8 +188,9 @@ async function takePhoto() {
             throw new Error('拍照未成功，请重试。');
         if (!cameraDialog.value?.open || session !== cameraSession)
             return;
-        if (appendPhotos([new File([blob], `作业照片-${Date.now()}.jpg`, { type: 'image/jpeg' })]))
-            closeCamera();
+        if (appendPhotos([new File([blob], `作业照片-${Date.now()}-${selectedFiles.value.length + 1}.jpg`, { type: 'image/jpeg' })])) {
+            if (selectedFiles.value.length >= 9) closeCamera();
+        }
         else
             cameraError.value = uploadError.value;
     }
@@ -182,7 +203,7 @@ async function takePhoto() {
 }
 async function submitAssignment() {
     const assignment = props.assignment;
-    if (submitting.value || receipt.value)
+    if (step.value !== 'review' || receipt.value || submitting.value)
         return;
     error.value = '';
     if (!selectedFiles.value.length || selectedFiles.value.length > 9) {
@@ -214,6 +235,7 @@ async function submitAssignment() {
             status: data.data.status || 'PENDING',
             image_count: Number.isInteger(data.data.image_count) && data.data.image_count > 0 ? data.data.image_count : selectedFiles.value.length,
         };
+        reviewDialog.value?.close();
         clearUploadQueue();
         step.value = 'receipt';
         emit('submitted', receipt.value);
@@ -227,15 +249,27 @@ async function submitAssignment() {
         submitting.value = false;
     }
 }
-function reviewPhotos() {
+async function reviewPhotos() {
     if (!selectedFiles.value.length || submitting.value) return;
+    if (cameraDialog.value?.open) closeCamera();
     step.value = 'review';
+    await nextTick();
+    reviewDialog.value?.showModal();
+}
+function backToPhotos() {
+    if (queueLocked.value) return;
+    reviewDialog.value?.close();
+    step.value = 'add';
 }
 function requestClose() { emit('cancel'); }
 function focus() { submissionDialog.value?.focus(); }
-defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: computed(() => submitting.value), unresolved: computed(() => !!submissionKey.value && !submitting.value), focus });
+defineExpose({ hasDraft: computed(() => selectedFiles.value.length > 0), busy: submitting, unresolved: computed(() => !!submissionKey.value && !submitting.value), focus });
+watch(handheld, (value) => {
+    if (!value) return;
+    closeCamera();
+});
 onMounted(() => { submissionDialog.value?.showModal(); });
-onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.close(); photoDialog.value?.close(); stopCamera(); clearUploadQueue(); });
+onBeforeUnmount(() => { reviewDialog.value?.close(); submissionDialog.value?.close(); cameraDialog.value?.close(); photoDialog.value?.close(); stopCamera(); clearUploadQueue(); });
 </script>
 <template>
   <dialog ref="submissionDialog" class="submission" aria-labelledby="submission-heading" tabindex="-1" @cancel.prevent="requestClose">
@@ -243,12 +277,13 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
 <div>
 <p>一次提交整份作业</p>
 <h2 id="submission-heading">{{ assignment.title }}</h2>
+<p class="submission-context">{{ subjectLabel(assignment.subject) }} · {{ assignment.class_name || '班级信息待核对' }}</p>
 </div>
 <button type="button" class="btn btn-secondary btn-sm" :disabled="submitting" @click="requestClose">关闭提交</button>
 </header>
     <ol class="submission-steps" aria-label="作业提交流程">
       <li :aria-current="step === 'add' ? 'step' : undefined" :class="{ active: step === 'add' }">1 添加照片</li>
-      <li :aria-current="step === 'review' ? 'step' : undefined" :class="{ active: step === 'review' }">2 检查顺序</li>
+      <li :aria-current="step === 'review' ? 'step' : undefined" :class="{ active: step === 'review' }">2 提交前预览</li>
       <li :aria-current="step === 'receipt' ? 'step' : undefined" :class="{ active: step === 'receipt' }">3 提交回执</li>
     </ol>
     <section v-if="receipt" class="submission-receipt" aria-labelledby="photo-receipt-heading">
@@ -256,22 +291,26 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
       <p>本次回执：已收到 {{ receipt.image_count }} 张作业照片。</p>
       <p>任务编号：<strong class="receipt-id">{{ receipt.task_id }}</strong></p>
       <p>{{ receipt.status === 'SUCCESS' ? '已收到处理状态，请关闭后查看可信批改反馈。' : `${taskLabel(receipt.status)}。` }}无需重复提交。</p>
-      <button type="button" class="btn btn-primary" @click="requestClose">完成，返回作业清单</button>
+      <button type="button" class="btn btn-primary" @click="requestClose">{{ handheld ? '继续提交其他作业' : '完成，返回作业清单' }}</button>
     </section>
     <template v-else>
     <p v-if="error" class="photo-error" role="alert">{{ error }}</p>
     <div class="student-upload-box">
 
             <div class="photo-queue-heading">
-<strong>{{ step === 'review' ? '检查照片与顺序' : '准备作业照片' }}</strong>
+<strong>{{ step === 'review' ? '提交前，请再看一遍整份作业' : '准备作业照片' }}</strong>
 <span aria-live="polite">{{ selectedFiles.length }} / 9 张</span>
 </div>
-            <p class="muted">{{ step === 'review' ? '确认每张照片文字清晰、页码顺序正确。一次提交这组照片，对应一个作业任务。' : '拍清整页，按页码连续添加 1–9 张；最后检查后一次提交。' }}</p>
+            <p class="muted">{{ step === 'review' ? '下面是即将提交的全部照片。请留意有无漏拍、模糊或顺序不对；点缩略图可看原图。无需逐张确认，看完即可提交。' : '拍清整页，按页码连续添加 1–9 张；先整体预览，再一次提交。' }}</p>
             <div v-if="step === 'add'" class="photo-add-actions">
-              <button type="button" class="btn btn-primary" :disabled="queueLocked || selectedFiles.length >= 9" @click="openCamera">拍照添加</button>
+              <button v-if="handheld" ref="photoAddButton" type="button" class="btn btn-primary camera-picker" :disabled="queueLocked || selectedFiles.length >= 9" @click="openNativeCamera">{{ selectedFiles.length ? '继续拍照添加' : '拍照添加' }}</button>
+              <button v-else-if="liveCameraSupported" ref="photoAddButton" type="button" class="btn btn-primary" :disabled="queueLocked || selectedFiles.length >= 9" @click="openPhotoAdd">拍照添加</button>
+              <label v-else class="student-file-picker camera-picker" :class="{ 'is-disabled': queueLocked || selectedFiles.length >= 9 }">本机拍照 / 选择照片<input aria-label="使用本机系统相机拍作业" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" capture="environment" :disabled="queueLocked || selectedFiles.length >= 9" @change="onFileChange" /></label>
               <label class="student-file-picker" :class="{ 'is-disabled': queueLocked || selectedFiles.length >= 9 }">从相册选择<input aria-label="从相册选择作业照片" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" multiple :disabled="queueLocked || selectedFiles.length >= 9" @change="onFileChange" />
 </label>
+              <input v-if="handheld" ref="nativeCameraInput" class="native-camera-input" aria-label="使用手机后置相机拍作业" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" capture="environment" tabindex="-1" :disabled="queueLocked || selectedFiles.length >= 9" @change="onFileChange" />
             </div>
+            <p v-if="handheld && step === 'add'" class="muted">直接打开手机相机，拍完一页可继续添加；也可从相册多选。相机无法使用时，请从相册选择。</p>
             <p v-if="uploadError" class="photo-error" role="alert">{{ uploadError }}</p>
             <p v-if="submissionKey && !submitting" class="retry-notice" role="status">尚未确认提交结果，照片与顺序已锁定。请保留本页，用原照片重试；若持续失败，请联系老师核实，避免重复提交。</p>
             <ol v-if="selectedFiles.length" class="photo-queue" aria-label="待提交作业照片">
@@ -290,29 +329,53 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
             </ol>
             <p v-else class="muted">还没有添加照片。支持 JPG、PNG、GIF、BMP，每张不超过 10MB。</p>
             <div class="submission-actions">
-              <button v-if="step === 'add'" type="button" class="btn btn-primary" :disabled="!selectedFiles.length" @click="reviewPhotos">检查照片与顺序 →</button>
+              <button v-if="step === 'add'" type="button" class="btn btn-primary" :disabled="!selectedFiles.length || queueLocked" @click="reviewPhotos">提交作业 · 先预览 {{ selectedFiles.length }} 张</button>
               <template v-else>
-                <button type="button" class="btn btn-secondary" :disabled="queueLocked" @click="step = 'add'">继续添加照片</button>
+                <button type="button" class="btn btn-secondary" :disabled="queueLocked" @click="backToPhotos">返回调整照片</button>
                 <button type="button" class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '提交中…' : `${submissionKey ? '用原照片重试' : '确认提交'} ${selectedFiles.length} 张图片` }}</button>
               </template>
             </div>
     </div>
     </template>
+    <dialog ref="reviewDialog" class="review-dialog" aria-labelledby="final-review-heading" @cancel.prevent="backToPhotos">
+      <p class="review-eyebrow">提交前再看一遍</p>
+      <h2 id="final-review-heading">整份作业 · {{ selectedFiles.length }} 张</h2>
+      <p>这里是本次准备上传的全部照片。检查是否漏拍、模糊或页序有误；点任意一张可查看原图。无需逐张打勾。</p>
+      <ol class="review-grid" aria-label="本次提交的全部照片缩略图">
+        <li v-for="(url,index) in uploadPreviews" :key="url">
+          <button type="button" :aria-label="`查看第 ${index+1} 张原图`" @click="showPhoto(index)">
+            <img :src="url" :alt="`第 ${index+1} 张作业照片`" />
+            <span>第 {{ index+1 }} 张 · 看原图</span>
+          </button>
+        </li>
+      </ol>
+      <p v-if="error" class="photo-error" role="alert">{{ error }}</p>
+      <p v-if="submissionKey && !submitting" class="retry-notice" role="status">结果尚未确认，请保留原照片并用同一提交键重试。</p>
+      <div class="submission-actions">
+        <button type="button" class="btn btn-secondary" :disabled="queueLocked" @click="backToPhotos">返回补拍或调整顺序</button>
+        <button type="button" class="btn btn-primary" :disabled="submitting || !selectedFiles.length" @click="submitAssignment">{{ submitting ? '正在提交…' : submissionKey ? '用原照片重试' : '确认提交' }}</button>
+      </div>
+    </dialog>
     <dialog ref="cameraDialog" class="photo-dialog" aria-labelledby="camera-heading" @close="stopCamera" @cancel="stopCamera">
       <div class="photo-dialog-heading">
 <h2 id="camera-heading">拍摄作业</h2>
 <button type="button" class="btn btn-secondary btn-sm" @click="closeCamera">关闭相机</button>
 </div>
-      <p class="muted">将整页放入画面，保持光线充足，文字清晰后再拍摄。</p>
+      <p class="muted">将整页放入画面，保持光线充足。可连续拍到 9 张，拍完后整体预览。</p>
       <video ref="cameraVideo" autoplay muted playsinline class="camera-video" aria-label="作业拍摄画面">
 </video>
       <p v-if="cameraError" class="photo-error" role="alert">{{ cameraError }}</p>
       <p v-else-if="!cameraReady" role="status">正在打开相机，请按浏览器提示允许使用摄像头…</p>
       <div class="photo-add-actions">
-        <button type="button" class="btn btn-primary" :disabled="!cameraReady || cameraBusy" @click="takePhoto">{{ cameraBusy ? '正在保存…' : '拍照并添加' }}</button>
+        <button type="button" class="btn btn-primary" :disabled="!cameraReady || cameraBusy || selectedFiles.length>=9" @click="takePhoto">{{ cameraBusy ? '正在保存…' : `拍照并添加（${selectedFiles.length}/9）` }}</button>
         <label class="student-file-picker">系统相机 / 选择照片<input aria-label="系统相机或选择照片" type="file" accept="image/jpeg,image/png,image/gif,image/bmp" capture="environment" :disabled="cameraBusy" @change="onFileChange" />
 </label>
       </div>
+      <p class="muted" aria-live="polite">已拍/选 {{ selectedFiles.length }} 张；可以继续拍，或结束拍摄查看全部。</p>
+      <div v-if="selectedFiles.length" class="camera-strip" aria-label="已拍摄照片">
+        <button v-for="(url,index) in uploadPreviews" :key="url" type="button" :aria-label="`看第 ${index+1} 张原图`" @click="showPhoto(index)"><img :src="url" :alt="`第 ${index+1} 张照片缩略图`" /></button>
+      </div>
+      <button v-if="selectedFiles.length" type="button" class="btn btn-secondary" @click="closeCamera">拍完了，查看全部照片</button>
     </dialog>
     <dialog ref="photoDialog" class="photo-dialog" aria-labelledby="photo-preview-heading" @close="previewPhoto = null">
       <div class="photo-dialog-heading">
@@ -342,6 +405,7 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
 .student-file-picker:focus-within { outline: 2px solid #2563eb; outline-offset: 3px; }
 
 .student-file-picker.is-disabled { opacity: .5; cursor: not-allowed; }
+.student-file-picker.camera-picker{background:#185d49;color:white;border-color:#185d49;font-weight:600}
 
 .photo-queue { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; width: 100%; list-style: none; padding: 0; margin: 4px 0; }
 
@@ -377,6 +441,12 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
 .photo-dialog .photo-add-actions { margin-top: 14px; }
 
 .photo-full { display: block; max-width: 100%; max-height: 70dvh; margin: auto; object-fit: contain; }
+.review-dialog{width:min(760px,calc(100vw - 24px));max-height:90dvh;overflow:auto;box-sizing:border-box;padding:22px;border:1px solid #bad4c0;border-radius:16px;color:#294a39}
+.review-dialog::backdrop{background:rgb(17 35 24 / 70%)}.review-dialog h2{font-size:20px;margin:0}.review-dialog p{font-size:13px;line-height:1.7}.review-eyebrow{color:#4a795c;letter-spacing:.05em}
+.review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;list-style:none;padding:0;margin:16px 0}
+.review-grid li{min-width:0}.review-grid button{display:grid;justify-items:center;width:100%;padding:5px;border:1px solid #d4e3d7;border-radius:8px;background:#f9fbf9;color:#365d49;cursor:zoom-in}
+.review-grid img{width:100%;height:clamp(72px,12vh,148px);object-fit:contain}.review-grid span{font-size:11px;padding:5px 0}
+.camera-strip{display:flex;gap:8px;overflow-x:auto;padding:8px 0}.camera-strip button{flex:none;width:72px;height:72px;padding:3px;background:#fff;border:1px solid #c5d8ca;border-radius:6px}.camera-strip img{width:100%;height:100%;object-fit:contain}
 
 
 .submission{padding:24px;border:1px solid #b5d0c3;background:#fbfdfb;border-radius:16px;width:min(780px,calc(100vw - 32px));max-height:90dvh;box-sizing:border-box;color:#263d32;overflow:auto;margin:auto}
@@ -392,11 +462,33 @@ onBeforeUnmount(() => { submissionDialog.value?.close(); cameraDialog.value?.clo
 .submission-header{display:flex;justify-content:space-between;gap:12px;align-items:center}
 .submission-header p{font-size:12px;color:#527365;margin:0 0 8px}
 .submission-header h2{font-size:19px;margin:0}
+.submission-header .submission-context{margin:8px 0 0;line-height:1.6}
 .student-upload-box{display:grid;justify-items:start;gap:12px;background:transparent;padding:16px 0 0;margin:0}
 .photo-dialog .muted,.student-upload-box .muted{font-size:13px;line-height:1.7;margin:0;color:#62796d}
 .student-file-picker{position:relative;display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid #cadcd1;border-radius:8px;background:#fff;color:#365d49;cursor:pointer}
 .student-file-picker input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .btn-primary{background:#185d49;border-color:#185d49}
 .photo-queue{grid-template-columns:repeat(auto-fill,minmax(145px,1fr))}
+.native-camera-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
+@media(max-width:700px){
+  .submission,.photo-dialog,.review-dialog{width:calc(100vw - 16px);max-width:100%;max-height:calc(100dvh - 16px);padding:16px 12px;padding-bottom:max(16px,env(safe-area-inset-bottom));overflow:auto;overscroll-behavior:contain}
+  .submission button,.photo-dialog button,.review-dialog button,.student-file-picker{min-height:44px;touch-action:manipulation}
+  .submission-header,.photo-dialog-heading{align-items:flex-start;gap:10px}
+  .submission-header>div{min-width:0;overflow-wrap:anywhere}
+  .submission-header>.btn,.photo-dialog-heading>.btn{flex-shrink:0}
+  .submission-header h2{font-size:18px;line-height:1.5}
+  .submission-steps{gap:5px;font-size:11px;margin:16px 0}
+  .submission-steps li{padding:8px 6px}
+  .photo-add-actions{width:100%;align-items:stretch}
+  .photo-add-actions>.btn,.photo-add-actions>.student-file-picker{flex:1;justify-content:center;text-align:center}
+  .photo-queue{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .photo-thumbnail img{height:120px}
+  .photo-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .photo-controls button{min-width:44px}
+  .photo-controls button:last-child{grid-column:1/-1}
+  .submission-actions>.btn{flex:1 1 100%;white-space:normal;line-height:1.5}
+  .review-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .review-grid span{font-size:10px}
+}
 
 </style>

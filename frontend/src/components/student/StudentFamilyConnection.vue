@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ canInvite: boolean; busy: boolean; inviteCode: string; embedded?: boolean }>()
+withDefaults(defineProps<{ canInvite: boolean; busy: boolean; inviteCode: string; embedded?: boolean; allowClaim?: boolean }>(), { allowClaim: true })
 const code = defineModel<string>('code', { required: true })
 const relationship = defineModel<string>('relationship', { required: true })
 defineEmits<{ create: []; claim: [] }>()
@@ -12,7 +12,7 @@ defineEmits<{ create: []; claim: [] }>()
       <button type="button" :disabled="busy" @click="$emit('create')">生成家庭成员邀请</button>
       <code v-if="inviteCode">{{ inviteCode }}</code>
     </div>
-    <form class="family-fields" @submit.prevent="$emit('claim')">
+    <form v-if="allowClaim" class="family-fields" @submit.prevent="$emit('claim')">
       <label>家庭关系码<input v-model="code" maxlength="32" autocomplete="off" /></label>
       <label>与学生的关系<select v-model="relationship">
         <option value="father">父亲</option><option value="mother">母亲</option><option value="guardian">监护人</option>
@@ -35,4 +35,5 @@ button{cursor:pointer;line-height:1.7}
 button:disabled{opacity:.45;cursor:not-allowed}
 input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
 code{color:#41624c;overflow-wrap:anywhere;font-size:11px}
+@media(pointer:coarse),(max-width:700px){input,select,button{min-height:44px;font-size:16px}label{font-size:14px}summary{min-height:44px;display:flex;align-items:center}p{font-size:13px}code{font-size:14px}}
 </style>

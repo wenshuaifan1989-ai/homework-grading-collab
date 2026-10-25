@@ -1,10 +1,9 @@
 import type { StudentAssignment } from '../api/student'
 
-export type AssignmentFilter = 'all' | 'todo' | 'processing' | 'review' | 'completed' | 'attention'
+export type AssignmentFilter = 'todo' | 'submitted' | 'review'
 export const assignmentFilters: Array<{ value: AssignmentFilter; label: string }> = [
-  { value: 'all', label: '全部作业' }, { value: 'todo', label: '待提交' },
-  { value: 'processing', label: '处理中' }, { value: 'review', label: '待复核' },
-  { value: 'completed', label: '已完成' }, { value: 'attention', label: '需处理' },
+  { value: 'todo', label: '待提交' }, { value: 'submitted', label: '已提交' },
+  { value: 'review', label: '待复核' },
 ]
 export function subjectLabel(code?: string | null): string {
   const names: Record<string, string> = { math: '数学', chinese: '语文', english: '英语', physics: '物理', chemistry: '化学', biology: '生物', history: '历史', geography: '地理' }
@@ -18,16 +17,23 @@ export function gradeLabel(code?: string | null): string {
 export function isReview(status?: string | null): boolean {
   return ['WAIT_REVIEW', 'HOLD_REVIEW'].includes((status || '').toUpperCase())
 }
-export function assignmentGroup(item: StudentAssignment): Exclude<AssignmentFilter, 'all'> {
+export function assignmentGroup(item: StudentAssignment): AssignmentFilter {
   if (isReview(item.task_status)) return 'review'
   if (!item.submitted && !item.task_id) return 'todo'
-  if (item.task_status === 'SUCCESS') return 'completed'
-  if (['FAILED', 'CANCELLED', 'UNKNOWN_LAYOUT'].includes(item.task_status || '')) return 'attention'
-  return 'processing'
+  return 'submitted'
+}
+export function assignmentGroupLabel(item: StudentAssignment): string {
+  return assignmentFilters.find(filter => filter.value === assignmentGroup(item))!.label
 }
 export function taskLabel(status?: string | null): string {
-  const labels: Record<string, string> = { SUCCESS: '批改已完成', WAIT_REVIEW: '等待老师复核', HOLD_REVIEW: '等待老师复核', PENDING: '已提交，排队中', PREPROCESSING: '正在处理照片', PROCESSING: '正在处理', GRADING: '正在批改', FAILED: '处理未完成', CANCELLED: '已取消', UNKNOWN_LAYOUT: '需核对试卷与照片' }
+  const labels: Record<string, string> = { SUCCESS: '已收到批改状态，请查看反馈', WAIT_REVIEW: '等待老师复核', HOLD_REVIEW: '等待老师复核', PENDING: '老师加紧批改中', PREPROCESSING: '老师加紧批改中', PROCESSING: '老师加紧批改中', GRADING: '老师加紧批改中', FAILED: '本次处理未完成，请联系老师核对原任务', CANCELLED: '本次任务已取消，请联系老师核对', UNKNOWN_LAYOUT: '试卷与照片需核对，请联系老师核对原任务' }
   return status ? labels[status] || '状态待确认' : '待提交'
+}
+export function assignmentDetail(item: StudentAssignment, feedbackVerified = false): string {
+  if (assignmentGroup(item) === 'todo') return ''
+  if (item.task_status === 'SUCCESS') return feedbackVerified ? '题目反馈已核对，可查看批改反馈。' : '已收到处理结果状态，请查看反馈。'
+  if (item.task_status === 'RESULT_PENDING') return '老师加紧批改中，反馈尚待确认。'
+  return item.task_status ? taskLabel(item.task_status) : '提交已收到，状态待确认。'
 }
 // An unzoned server timestamp is displayed, but never used to assert overdue.
 export function deadlineTimestamp(value?: string | null): number | null {
@@ -54,8 +60,14 @@ export function dateLabel(value?: string | null): string {
   return value.replace('T', ' ').replace(/\.\d+$/, '')
 }
 export function sortAssignments(items: StudentAssignment[]): StudentAssignment[] {
-  const order = { todo: 0, attention: 1, review: 2, processing: 3, completed: 4 }
-  return [...items].sort((a, b) => order[assignmentGroup(a)] - order[assignmentGroup(b)] || (deadlineTimestamp(a.due_at) ?? Infinity) - (deadlineTimestamp(b.due_at) ?? Infinity))
+  return assignmentFilters.flatMap(({ value }) => {
+    const group = items.filter(item => assignmentGroup(item) === value)
+    const time = (item: StudentAssignment) => deadlineTimestamp(value === 'todo' ? item.due_at : item.submitted_at)
+    const dated = group.filter(item => time(item) !== null).sort((a, b) => (time(a)! - time(b)!) * (value === 'submitted' ? -1 : 1))
+    let index = 0
+    // Missing/ambiguous dates keep their original slots instead of gaining an invented priority.
+    return group.map(item => time(item) === null ? item : dated[index++]!)
+  })
 }
 // Reminder groups use only deadlines that carry an explicit timezone. A missing
 // or unzoned deadline remains visible on its assignment without invented urgency.
@@ -63,9 +75,9 @@ export function assignmentReminders(items: StudentAssignment[], now: number) {
   const pending = items.filter(item => assignmentGroup(item) === 'todo')
   const byDeadline = (a: StudentAssignment, b: StudentAssignment) => (deadlineTimestamp(a.due_at) ?? Infinity) - (deadlineTimestamp(b.due_at) ?? Infinity)
   return {
-    attention: items.filter(item => assignmentGroup(item) === 'attention' || (assignmentGroup(item) === 'todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now)).sort(byDeadline),
+    overdue: pending.filter(item => (deadlineTimestamp(item.due_at) ?? Infinity) < now).sort(byDeadline),
     upcoming: pending.filter(item => { const deadline = deadlineTimestamp(item.due_at); return deadline !== null && deadline >= now }).sort(byDeadline),
-    review: items.filter(item => assignmentGroup(item) === 'review').sort(byDeadline),
+    review: sortAssignments(items.filter(item => assignmentGroup(item) === 'review')),
   }
 }
 export function questionLabel(result?: string | null): string {

@@ -17,11 +17,52 @@ test('review remains unresolved even when a stale submitted flag is false', () =
     assert.equal(h.assignmentGroup(row(state, false)), 'review');
     assert.match(h.taskLabel(state), /复核/);
   }
-  assert.equal(h.assignmentGroup(row('SUCCESS')), 'completed');
-  assert.equal(h.assignmentGroup(row('FAILED')), 'attention');
-  assert.equal(h.assignmentGroup(row('NEW_SERVER_STATE')), 'processing');
-  assert.equal(h.assignmentGroup({ ...row('PENDING', false), task_id: 'synthetic-existing' }), 'processing');
+  assert.equal(h.assignmentGroup(row('SUCCESS')), 'submitted');
+  assert.equal(h.assignmentGroup(row('FAILED')), 'submitted');
+  assert.equal(h.assignmentGroup(row('NEW_SERVER_STATE')), 'submitted');
+  assert.equal(h.assignmentGroup({ ...row('PENDING', false), task_id: 'synthetic-existing' }), 'submitted');
   assert.equal(h.taskLabel('NEW_SERVER_STATE'), '状态待确认');
+});
+
+test('only three assignment categories are offered and receipts are distinct from trusted feedback', () => {
+  assert.deepEqual(Array.from(h.assignmentFilters, item => `${item.value}:${item.label}`), ['todo:待提交', 'submitted:已提交', 'review:待复核']);
+  assert.equal(h.assignmentGroupLabel(row(null, false)), '待提交');
+  for (const state of ['PENDING', 'PREPROCESSING', 'PROCESSING', 'GRADING', 'SUCCESS', 'FAILED', 'CANCELLED', 'UNKNOWN_LAYOUT', 'future-state', null]) {
+    const item = row(state);
+    assert.equal(h.assignmentGroupLabel(item), '已提交');
+    assert.doesNotMatch(h.assignmentDetail(item), /批改已完成|0分|零分/);
+  }
+  for (const state of ['PENDING', 'PREPROCESSING', 'PROCESSING', 'GRADING', 'RESULT_PENDING'])
+    assert.match(h.assignmentDetail(row(state)), /老师加紧批改中/);
+  assert.match(h.assignmentDetail(row('SUCCESS')), /已收到处理结果状态/);
+  assert.doesNotMatch(h.assignmentDetail(row('SUCCESS')), /老师加紧批改中|批改已完成/);
+  assert.match(h.assignmentDetail(row('SUCCESS'), true), /反馈已核对/);
+  assert.match(h.assignmentDetail(row('FAILED')), /未完成/);
+  assert.match(h.assignmentDetail(row('CANCELLED')), /已取消/);
+  assert.match(h.assignmentDetail(row('UNKNOWN_LAYOUT')), /核对/);
+  assert.match(h.assignmentDetail(row('future-state')), /状态待确认/);
+  assert.match(h.assignmentDetail(row(null)), /状态待确认/);
+});
+
+test('each category sorts its own reliable dates and leaves missing-date positions unchanged', () => {
+  const date = day => `2026-10-${day}T10:00:00+08:00`;
+  const cases = [
+    ['todo', null, false, 'due_at', [3, 2, 5, 4, 1]],
+    ['submitted', 'GRADING', true, 'submitted_at', [1, 2, 5, 4, 3]],
+    ['review', 'WAIT_REVIEW', true, 'submitted_at', [3, 2, 5, 4, 1]],
+  ];
+  for (const [group, state, submitted, field, expected] of cases) {
+    const items = [
+      { ...row(state, submitted), id: 1, [field]: date(24) },
+      { ...row(state, submitted), id: 2 },
+      { ...row(state, submitted), id: 3, [field]: date(22) },
+      { ...row(state, submitted), id: 4, [field]: '2026-10-21T10:00:00' },
+      { ...row(state, submitted), id: 5, [field]: date(23) },
+    ];
+    assert.equal(h.assignmentGroup(items[0]), group);
+    assert.deepEqual(Array.from(h.sortAssignments(items), item => item.id), expected);
+    assert.deepEqual(items.map(item => item.id), [1, 2, 3, 4, 5]);
+  }
 });
 test('all nontrusted question states hide aggregate scores, including a false zero', () => {
   const confirmed = { result: 'correct', score: 0, max_score: 5 };
@@ -39,7 +80,8 @@ test('task priorities include older unsubmitted assignments and preserve source 
   const items = [row('SUCCESS'), row('WAIT_REVIEW'), { ...row(null, false), assignment_date: '2020-01-01' }];
   const sorted = h.sortAssignments(items);
   assert.equal(sorted[0].assignment_date, '2020-01-01');
-  assert.equal(sorted[1].task_status, 'WAIT_REVIEW');
+  assert.equal(sorted[1].task_status, 'SUCCESS');
+  assert.equal(sorted[2].task_status, 'WAIT_REVIEW');
   assert.equal(items[0].task_status, 'SUCCESS');
 });
 test('only explicitly zoned deadlines are used to assert overdue', () => {
@@ -87,7 +129,7 @@ test('reminders distinguish overdue work, future deadlines and reviews without i
     { ...row('SUCCESS'), id: 9, due_at: '2026-10-21T16:00:00+08:00' },
   ];
   const result = h.assignmentReminders(items, now);
-  assert.deepEqual(Array.from(result.attention, item => item.id), [1, 7]);
+  assert.deepEqual(Array.from(result.overdue, item => item.id), [1]);
   assert.deepEqual(Array.from(result.upcoming, item => item.id), [2, 3]);
   assert.deepEqual(Array.from(result.review, item => item.id), [6]);
   assert.equal(items[0].id, 1);

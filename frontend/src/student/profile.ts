@@ -17,8 +17,11 @@ export function maskedEmail(value?: string | null): string {
 }
 export function relationshipLabel(student?: LinkedStudent | null): string {
   if (!student) return '尚未选择学习身份'
+  return relationshipTypeLabel(student.relationship_type)
+}
+export function relationshipTypeLabel(type: string): string {
   const names: Record<string, string> = { self: '本人', father: '父亲', mother: '母亲', guardian: '监护人', paternal_grandfather: '祖父', paternal_grandmother: '祖母', maternal_grandfather: '外祖父', maternal_grandmother: '外祖母', other: '家庭成员' }
-  return names[student.relationship_type] || '关联关系待确认'
+  return names[type] || '关联关系待确认'
 }
 // The fallback distinguishes choices on this page; it is not a student sequence.
 export function studentIdentityLabel(student: LinkedStudent, binding: StudentBinding | null, index: number): string {

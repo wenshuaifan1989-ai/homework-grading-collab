@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { studentApi, type LinkedStudent, type StudentAssignment, type StudentBinding } from '@/api/student';
 import { paperApi, type MistakeItem } from '@/api/paper';
@@ -8,11 +8,18 @@ import type { GradingResultResponse } from '@/api/homework';
 import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
 import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
 import StudentPhotoSubmission from '@/components/student/StudentPhotoSubmission.vue';
+import StudentPhonePrint from '@/components/student/StudentPhonePrint.vue';
+import StudentMobileEntry from '@/components/student/StudentMobileEntry.vue';
 import StudentFamilyConnection from '@/components/student/StudentFamilyConnection.vue';
-import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
-import { studentIdentityLabel, type ProfileMetric } from '@/student/profile';
-import { assignmentFilters, assignmentGroup, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
+import StudentPersonalCenter from '@/components/student/StudentPersonalCenter.vue';
+import { identityIssue, singleStudent, studentExperience } from '@/student/experience';
+import { useStudentHandheld } from '@/student/device';
+import { createPaperDocumentLoader, resolvePrintableAssignment, type PaperPreviewKind } from '@/student/paperPrint';
+import { assignmentDetail, assignmentFilters, assignmentGroup, assignmentGroupLabel, assignmentReminders, dateLabel, deadlineHint, deadlineTimestamp, gradeLabel, isReview, questionLabel, sortAssignments, subjectLabel, taskLabel, trustedQuestion, trustedSummary, type AssignmentFilter } from '@/student/workbench';
 const auth = useAuthStore();
+const route = useRoute();
+const handheld = useStudentHandheld();
+const isProfile = computed(() => route.query.section === 'profile');
 const students = ref<LinkedStudent[]>([]);
 const selectedStudentId = ref<number | null>(null);
 const binding = ref<StudentBinding | null>(null);
@@ -26,7 +33,7 @@ let observationVersion = 0;
 const mistakeError = ref(false);
 const loadingMistakes = ref(false);
 const subject = ref('');
-const status = ref<AssignmentFilter>('all');
+const status = ref<AssignmentFilter>('todo');
 const search = ref('');
 const highlightedAssignmentId = ref<number | null>(null);
 const loading = ref(true);
@@ -41,6 +48,12 @@ const error = ref('');
 const notice = ref('');
 const activeAssignmentId = ref<number | null>(null);
 const submissionAssignment = ref<StudentAssignment | null>(null);
+const acceptedSubmissions = ref<Record<string, StudentAssignment>>({});
+const printAssignment = ref<StudentAssignment | null>(null);
+const phonePrintAvailable = computed(() => !handheld.value && !!studentExperience.phonePrint);
+const mobileEntryStudentId = ref<number | null>(null);
+const mobileEntryAvailable = computed(() => !handheld.value && !!studentExperience.mobileEntry);
+const mobileEntryButton = ref<HTMLButtonElement | null>(null);
 const uploader = ref<{
     hasDraft: boolean;
     busy: boolean;
@@ -55,12 +68,17 @@ const resultError = ref('');
 const originalImages = ref<string[]>([]);
 const imagesBusy = ref(false);
 const paperDialog = ref<HTMLDialogElement | null>(null);
+const paperAssignment = ref<StudentAssignment | null>(null);
+const phonePrintButton = ref<HTMLButtonElement | null>(null);
 const paperUrl = ref('');
 const paperBusy = ref(false);
 const paperFormat = ref('');
 const paperTitle = ref('');
 const paperError = ref('');
 const paperInline = ref(false);
+const paperKind = ref<PaperPreviewKind>('download');
+const paperFilename = ref('');
+const paperLoader = createPaperDocumentLoader(URL);
 let serial = 0;
 let resultSerial = 0;
 let paperSerial = 0;
@@ -74,23 +92,23 @@ const subjectCounts = computed(() => assignmentsLoaded.value ? assignments.value
     return counts;
 }, { '': 0 }) : undefined);
 const effectiveAssignments = computed(() => assignments.value.map(item => item.task_id && observedTaskStates.value[item.task_id] ? { ...item, submitted: true, task_status: observedTaskStates.value[item.task_id].state } : item));
-const visibleAssignments = computed(() => sortAssignments(effectiveAssignments.value.filter(item => (!subject.value || item.subject === subject.value) && (status.value === 'all' || assignmentGroup(item) === status.value) && (!search.value.trim() || (item.title + ' ' + item.class_name).includes(search.value.trim())))));
+const visibleAssignments = computed(() => sortAssignments(effectiveAssignments.value.filter(item => (!subject.value || item.subject === subject.value) && assignmentGroup(item) === status.value && (!search.value.trim() || (item.title + ' ' + item.class_name).includes(search.value.trim())))));
 const activeAssignment = computed(() => submissionAssignment.value?.id === activeAssignmentId.value ? submissionAssignment.value : assignments.value.find(item => item.id === activeAssignmentId.value));
 const todos = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'todo'));
 const reviews = computed(() => effectiveAssignments.value.filter(item => assignmentGroup(item) === 'review'));
 const reminders = computed(() => assignmentReminders(effectiveAssignments.value, now.value));
-const openMistakes = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)));
 const headingDate = computed(() => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(now.value)));
 const summaryVisible = computed(() => !!result.value && trustedSummary(result.value));
-const profileMetrics = computed<ProfileMetric[]>(() => selectedStudent.value ? [
-    { label: '待提交作业', value: assignmentsLoaded.value ? todos.value.length : null, unit: '份' },
-    { label: '待老师复核', value: assignmentsLoaded.value ? reviews.value.length : null, unit: '份' },
-    { label: '待订正错题', value: !loadingMistakes.value && !mistakeError.value && !loading.value ? openMistakes.value.length : null, unit: '题' },
-] : []);
-function clearFilters() { subject.value = ''; status.value = 'all'; search.value = ''; }
+function clearFilters() { subject.value = ''; status.value = 'todo'; search.value = ''; }
+function cardDetail(item: StudentAssignment): string {
+    if (item.task_id && item.task_id === resultTaskId.value && resultError.value)
+        return '反馈暂时无法读取，请重试；原提交仍保留。';
+    return assignmentDetail(item, !!item.task_id && observedTaskStates.value[item.task_id]?.state === 'SUCCESS');
+}
 async function locateAssignment(item: StudentAssignment) {
     const studentId = selectedStudentId.value;
     clearFilters();
+    status.value = assignmentGroup(item);
     highlightedAssignmentId.value = item.id;
     await nextTick();
     if (studentId !== selectedStudentId.value) return;
@@ -119,9 +137,38 @@ function beforeUnload(event: BeforeUnloadEvent) { if (uploader.value?.hasDraft |
     event.returnValue = '';
 } }
 onBeforeRouteLeave(() => mayDiscard());
+onBeforeRouteUpdate((to, from) => to.query.section === from.query.section || mayDiscard());
 function revokeOriginals() { originalImages.value.forEach(url => URL.revokeObjectURL(url)); originalImages.value = []; }
 function clearResult() { resultSerial += 1; result.value = null; resultTaskId.value = ''; resultNotice.value = ''; resultError.value = ''; resultBusy.value = false; revokeOriginals(); }
+function rememberSubmission(item: StudentAssignment, studentId: number | null) {
+    if (!studentId || !Number.isSafeInteger(item.id) || item.id <= 0 || !item.task_id?.trim()
+        || (item.student_id != null && item.student_id !== studentId)) return;
+    acceptedSubmissions.value = { ...acceptedSubmissions.value,
+        [`${studentId}:${item.id}`]: { ...item, student_id: studentId, submitted: true } };
+}
 function applyAssignmentList(items: StudentAssignment[], requestVersion: number) {
+    const studentId = selectedStudentId.value;
+    // A confirmed submission stays confirmed when another assignment is opened.
+    // Keep this per-child evidence across a lagging or temporarily incomplete list.
+    items = items.map(item => {
+        if (!studentId || (item.student_id != null && item.student_id !== studentId)) return item;
+        const accepted = acceptedSubmissions.value[`${studentId}:${item.id}`];
+        if (!accepted?.task_id) return item;
+        if (item.task_id) { rememberSubmission(item, studentId); return item; }
+        const taskStatus = isReview(item.task_status) ? item.task_status : accepted.task_status;
+        if (taskStatus !== accepted.task_status) rememberSubmission({ ...accepted, task_status: taskStatus }, studentId);
+        return { ...item, submitted: true, task_id: accepted.task_id, task_status: taskStatus };
+    });
+    const receipt = submissionAssignment.value;
+    if (receipt?.task_id && receipt.id === activeAssignmentId.value
+        && (receipt.student_id == null || receipt.student_id === selectedStudentId.value)) {
+        // The accepted receipt wins over a lagging list row that has not caught up yet.
+        // A different explicit server task is left authoritative.
+        items = items.map(item => item.id === receipt.id && !item.task_id
+            && (item.student_id == null || item.student_id === selectedStudentId.value)
+            ? { ...item, submitted: true, task_id: receipt.task_id, task_status: item.task_status || receipt.task_status }
+            : item);
+    }
     const next: typeof observedTaskStates.value = {};
     for (const [taskId, observation] of Object.entries(observedTaskStates.value)) {
         // An explicit status read started during this list request is newer evidence.
@@ -198,8 +245,9 @@ async function loadWorkspace() {
             binding.value = (await studentApi.getBinding()).data.data;
         students.value = ((await studentApi.getMyStudents()).data.data || []).filter(item => item.status === 'active');
         bindingRequired.value = auth.user?.role === 'student' && !binding.value?.is_bound && !students.value.length;
-        selectedStudentId.value = students.value.some(item => item.student_id === binding.value?.student_id) ? binding.value!.student_id! : students.value.length === 1 ? students.value[0].student_id : null;
-        if (!bindingRequired.value)
+        selectedStudentId.value = singleStudent(students.value)?.student_id || null;
+        if (!selectedStudentId.value && !bindingRequired.value) error.value = identityIssue(students.value);
+        if (selectedStudentId.value)
             await loadAssignments();
     }
     catch (err: any) {
@@ -216,8 +264,10 @@ async function changeStudent(event: Event) {
         return;
     }
     activeAssignmentId.value = null;
+    closePaper();
     highlightedAssignmentId.value = null;
     submissionAssignment.value = null;
+    acceptedSubmissions.value = {};
     observedTaskStates.value = {};
     familyInviteCode.value = ''; familyCode.value = ''; familyNotice.value = ''; familyError.value = '';
     assignments.value = [];
@@ -226,7 +276,7 @@ async function changeStudent(event: Event) {
     clearResult();
     notice.value = '';
     subject.value = '';
-    status.value = 'all';
+    status.value = 'todo';
     selectedStudentId.value = Number(element.value) || null;
     await loadAssignments();
 }
@@ -294,7 +344,7 @@ async function openSubmit(item: StudentAssignment) {
     }
     if (!mayDiscard())
         return;
-    if ((item.submitted || item.task_id || isReview(item.task_status)) && item.task_status !== 'UNKNOWN_LAYOUT') {
+    if (item.submitted || item.task_id || isReview(item.task_status)) {
         error.value = '这份作业已有提交，请查看原任务状态。';
         return;
     }
@@ -314,6 +364,45 @@ function closeSubmission() {
     activeAssignmentId.value = null;
     submissionAssignment.value = null;
 }
+function openMobileEntry() {
+    const id = selectedStudentId.value, learner = singleStudent(students.value);
+    if (handheld.value || !studentExperience.mobileEntry || !id || learner?.student_id !== id || bindingRequired.value) return;
+    if (uploader.value?.busy) {
+        error.value = '作业正在提交，请等候提交结果后再打开手机端入口。';
+        uploader.value?.focus?.();
+        return;
+    }
+    error.value = '';
+    mobileEntryStudentId.value = id;
+}
+async function closeMobileEntry() {
+    mobileEntryStudentId.value = null;
+    await nextTick();
+    mobileEntryButton.value?.focus();
+}
+watch([selectedStudentId, handheld, isProfile], ([id, mobile, profile]) => {
+    if (id !== mobileEntryStudentId.value || mobile || profile) mobileEntryStudentId.value = null;
+});
+function openPhonePrint(item: StudentAssignment) {
+    const id = selectedStudentId.value;
+    if (handheld.value || !id || !studentExperience.phonePrint) return;
+    if ((item.student_id != null && item.student_id !== id) || item.status !== 'published' || item.assignment_mode !== 'uniform_mixed') {
+        error.value = '这份作业尚无当前学生可访问的正式原卷，请联系老师核对。';
+        return;
+    }
+    if (uploader.value?.busy) {
+        error.value = '作业正在提交，请等候提交结果后再打开打印入口。';
+        return;
+    }
+    // Printing is a read-only action. Keep any existing photo draft and submission receipt intact.
+    printAssignment.value = { ...item, student_id: id };
+}
+async function closePhonePrint() {
+    printAssignment.value = null;
+    await nextTick();
+    phonePrintButton.value?.focus();
+}
+watch(handheld, value => { if (value) printAssignment.value = null; });
 async function onSubmitted(response: {
     task_id: string;
     status: string;
@@ -326,6 +415,7 @@ async function onSubmitted(response: {
         item.submitted = true;
         item.task_id = response.task_id;
         item.task_status = response.status;
+        rememberSubmission(item, id);
         assignments.value = assignments.value.map(assignment => assignment.id === item.id ? { ...assignment, submitted: true, task_id: response.task_id, task_status: response.status } : assignment);
     }
     notice.value = `已收到整份作业，共 ${response.image_count} 张照片。请保留任务编号：${response.task_id}。`;
@@ -421,34 +511,59 @@ async function loadOriginalImages() {
         imagesBusy.value = false;
     }
 }
-function closePaper() { paperSerial += 1; paperBusy.value = false; paperDialog.value?.close(); if (paperUrl.value)
-    URL.revokeObjectURL(paperUrl.value); paperUrl.value = ''; }
+function closePaper() {
+    paperSerial += 1;
+    paperLoader.clear();
+    paperBusy.value = false;
+    printAssignment.value = null;
+    paperAssignment.value = null;
+    paperUrl.value = '';
+    paperInline.value = false;
+    paperKind.value = 'download';
+    paperFilename.value = '';
+    paperDialog.value?.close();
+}
 async function openPaper(item: StudentAssignment) {
     closePaper();
     const request = paperSerial;
+    paperAssignment.value = { ...item };
     paperTitle.value = item.title;
     paperFormat.value = (item.original_format || '').toLowerCase();
     paperError.value = '';
     paperInline.value = false;
     paperBusy.value = true;
     paperDialog.value?.showModal();
-    const studentId = item.student_id || selectedStudentId.value;
+    const studentId = selectedStudentId.value;
     if (!studentId) {
         paperError.value = '请先选择本人学生身份。';
         paperBusy.value = false;
         return;
     }
     try {
-        const response = await studentApi.getPublishedPaper(item.id, studentId);
+        // Resolve against the current account's authoritative list, rather than
+        // trusting a stale card or a student id supplied by its caller.
+        const { student, assignment } = resolvePrintableAssignment(students.value, assignments.value, String(item.id));
+        if (student.student_id !== studentId) throw Error('学生绑定信息已变化，请刷新作业列表后重试。');
+        paperAssignment.value = { ...assignment };
+        paperTitle.value = assignment.title;
+        paperFormat.value = (assignment.original_format || '').toLowerCase();
+        const document = await paperLoader.load(async () => (await studentApi.getPublishedPaper(assignment.id, studentId)).data, paperFormat.value, assignment.title);
         if (request !== paperSerial)
             return;
-        const mime = response.data.type.split(';')[0];
-        paperInline.value = (paperFormat.value === 'pdf' && mime === 'application/pdf') || (['png', 'jpg', 'jpeg'].includes(paperFormat.value) && ['image/png', 'image/jpeg'].includes(mime));
-        paperUrl.value = URL.createObjectURL(response.data);
+        if (studentId !== selectedStudentId.value) throw Error('学生绑定信息已变化，请重新打开试卷。');
+        resolvePrintableAssignment(students.value, assignments.value, String(assignment.id));
+        if (!document) return;
+        paperKind.value = document.kind;
+        paperInline.value = document.kind !== 'download';
+        paperFilename.value = document.filename;
+        paperUrl.value = document.url;
     }
     catch (err: any) {
-        if (request === paperSerial)
-            paperError.value = err.response?.status === 404 ? '试卷不存在或当前身份无权访问。' : err.response?.status === 409 ? '发布试卷版本需老师核对，请联系老师。' : '试卷暂时无法读取，请重试。';
+        if (request === paperSerial) {
+            paperLoader.clear();
+            const message = String(err.message || '').replace(/请返回电脑重新扫码。|请核对电脑与手机的账号绑定。|请等待老师发布后重新扫码。/g, '请刷新作业列表后重试。');
+            paperError.value = err.response?.status === 401 ? '登录已失效，请重新登录后打开试卷。' : err.response?.status === 403 || err.response?.status === 404 ? '试卷不存在或当前身份无权访问。' : err.response?.status === 409 ? '发布试卷版本需老师核对，请联系老师。' : err.response || err.request ? '试卷暂时无法读取，请重试。' : message || '试卷暂时无法读取，请重试。';
+        }
     }
     finally {
         if (request === paperSerial)
@@ -456,7 +571,7 @@ async function openPaper(item: StudentAssignment) {
     }
 }
 onMounted(() => { void loadWorkspace(); window.addEventListener('beforeunload', beforeUnload); clock = setInterval(() => { now.value = Date.now(); }, 60000); });
-onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEventListener('beforeunload', beforeUnload); if (clock)
+onBeforeUnmount(() => { serial++; clearResult(); closePaper(); paperLoader.dispose(); window.removeEventListener('beforeunload', beforeUnload); if (clock)
     clearInterval(clock); });
 </script>
 
@@ -465,21 +580,8 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
     <header class="page-header">
 <div>
 <p class="date-line">{{ headingDate }} · 学生学习工作台</p>
-<h1>我的作业<span>{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '查看作业、完成练习、记录进步' }}</span>
+<h1>{{ isProfile ? '个人中心' : '我的作业' }}<span>{{ (selectedStudent?.classes || []).map(item => item.class_name).join(' · ') || '班级身份待核对' }}</span>
 </h1>
-</div>
-<div class="page-account-actions">
-<label v-if="students.length" class="identity-picker">当前学生<select :value="selectedStudentId || ''" :disabled="uploader?.busy" @change="changeStudent">
-<option value="">请选择本人身份</option>
-<option v-for="(item, index) in students" :key="item.student_id" :value="item.student_id">{{ studentIdentityLabel(item, binding, index) }}</option>
-</select>
-</label>
-<StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="uploader?.busy">
-<template #family>
-<p v-if="familyError" class="notice error" role="alert">{{ familyError }}</p><p v-if="familyNotice" class="notice success" role="status">{{ familyNotice }}</p>
-<StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" embedded @create="createFamilyInvite" @claim="claimFamilyInvite" />
-</template>
-</StudentProfilePanel>
 </div>
 </header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
@@ -492,6 +594,17 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <button type="button" :disabled="loading" @click="loadWorkspace">重新核对身份</button>
 <StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship" :can-invite="!!selectedStudentId" :busy="familyBusy" :invite-code="familyInviteCode" @create="createFamilyInvite" @claim="claimFamilyInvite" />
 </section>
+    <div v-else-if="isProfile" class="personal-layout">
+      <StudentPersonalCenter :account="auth.user" :student="selectedStudent" :binding="binding">
+        <template #family-actions>
+          <p v-if="familyError" class="notice error" role="alert">{{ familyError }}</p>
+          <p v-if="familyNotice" class="notice success" role="status">{{ familyNotice }}</p>
+          <StudentFamilyConnection v-model:code="familyCode" v-model:relationship="familyRelationship"
+            :can-invite="!!selectedStudentId" :allow-claim="false" :busy="familyBusy"
+            :invite-code="familyInviteCode" embedded @create="createFamilyInvite" />
+        </template>
+      </StudentPersonalCenter>
+    </div>
     <StudentWorkbench v-else>
       <template #navigation>
         <StudentStudyNavigation v-model="subject" page="assignments" :subjects="subjects" :counts="subjectCounts" />
@@ -501,7 +614,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <div>
 <h2 id="assignments-heading">作业清单 <span class="section-subject">{{ subject ? subjectLabel(subject) : '全部学科' }}</span><span v-if="assignmentsLoaded" class="list-count">{{ visibleAssignments.length }} 份</span></h2>
 </div>
-<button class="text-button" :disabled="loading || !!uploader?.busy" @click="refreshAssignments">{{ loading ? '读取中…' : '刷新列表' }}</button>
+<div class="list-tools"><button v-if="mobileEntryAvailable" ref="mobileEntryButton" type="button" class="phone-workspace-entry" :disabled="!selectedStudentId || !!uploader?.busy" @click="openMobileEntry">手机端入口</button><button class="text-button" :disabled="loading || !!uploader?.busy" @click="refreshAssignments">{{ loading ? '读取中…' : '刷新列表' }}</button></div>
 </div>
         <nav class="status-tabs" aria-label="作业状态筛选">
           <button v-for="item in assignmentFilters" :key="item.value" type="button" :aria-pressed="status === item.value" @click="status=item.value">{{ item.label }}</button>
@@ -509,19 +622,20 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
         <div class="filters">
 <label class="search"><span class="sr-only">搜索作业</span><input v-model="search" placeholder="搜索作业标题或班级" type="search" />
 </label>
-<button v-if="subject || status !== 'all' || search" class="text-button" @click="clearFilters">清除筛选</button>
+<button v-if="subject || status !== 'todo' || search" class="text-button" @click="clearFilters">清除筛选</button>
 </div>
         <p v-if="loading" class="empty" role="status">正在读取本人作业…</p>
-<p v-else-if="!selectedStudentId" class="empty">请先选择已绑定的学生身份。</p>
+<p v-else-if="!selectedStudentId" class="empty">{{ identityIssue(students) }}</p>
 <p v-else-if="!visibleAssignments.length && !error" class="empty">当前范围没有作业。可以试试其他学科或状态。</p>
         <div v-else class="assignment-list">
 <article v-for="item in visibleAssignments" :id="`assignment-${item.id}`" :key="`${item.id}-${item.student_id}`" tabindex="-1" class="assignment-card" :class="{ highlighted: highlightedAssignmentId===item.id }" :aria-labelledby="`assignment-title-${item.id}`">
 <div class="assignment-overview">
   <div class="assignment-info">
-    <div class="card-top"><span class="subject-pill">{{ subjectLabel(item.subject) }}</span><span class="status-pill" :class="assignmentGroup(item)">{{ assignmentGroup(item) === 'todo' ? '待提交' : taskLabel(item.task_status) }}</span></div>
+    <div class="card-top"><span class="subject-pill">{{ subjectLabel(item.subject) }}</span><span class="status-pill" :class="assignmentGroup(item)">{{ assignmentGroupLabel(item) }}</span></div>
     <h3 :id="`assignment-title-${item.id}`">{{ item.title }}</h3>
     <p class="meta">{{ item.class_name }}<template v-if="item.grade"> · {{ gradeLabel(item.grade) }}</template></p>
     <p class="deadline" :class="{overdue: assignmentGroup(item)==='todo' && (deadlineTimestamp(item.due_at) ?? Infinity) < now}"><span v-if="assignmentGroup(item)==='todo' && deadlineHint(item.due_at, now)">{{ deadlineHint(item.due_at, now) }} · </span>截止：{{ dateLabel(item.due_at) }}</p>
+    <p v-if="cardDetail(item)" class="submission-detail">{{ cardDetail(item) }}</p>
   </div>
 </div>
 <details v-if="item.description || (item.variant_mode && item.variant_available && item.variant_questions?.length)" class="requirements">
@@ -537,8 +651,8 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </details>
 <p v-if="item.variant_mode && !item.variant_available" class="muted">{{ item.variant_message || '作业版本尚未就绪，请联系老师。' }}</p>
 <div class="card-actions">
-<button v-if="assignmentGroup(item)==='todo' || item.task_status==='UNKNOWN_LAYOUT'" :disabled="!!uploader?.busy || (item.variant_mode && !item.variant_available)" @click="openSubmit(item)">{{ item.task_status==='UNKNOWN_LAYOUT' ? '核对后重新拍照' : '拍照提交' }}</button>
-<button v-if="item.task_id" :class="{ secondary: item.task_status==='UNKNOWN_LAYOUT' }" :disabled="resultBusy" @click="showResult(item.task_id)">{{ assignmentGroup(item)==='completed' ? '查看批改反馈' : '查看处理进度' }}</button>
+<button v-if="assignmentGroup(item)==='todo'" :disabled="!!uploader?.busy || (item.variant_mode && !item.variant_available)" @click="openSubmit(item)">拍照提交</button>
+<button v-if="item.task_id" :disabled="resultBusy" @click="showResult(item.task_id)">查看进度 / 反馈</button>
 <button v-if="item.assignment_mode==='uniform_mixed'" class="secondary" @click="openPaper(item)">查看试卷 / 打印</button>
 <span v-if="assignmentGroup(item)==='review'" class="action-note">等待核对，无需重复提交</span>
 </div>
@@ -546,6 +660,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </div>
       </section>
       <StudentPhotoSubmission v-if="activeAssignment && selectedStudentId" id="student-submission" :key="`${activeAssignment.id}-${selectedStudentId}`" ref="uploader" :assignment="activeAssignment" :student-id="selectedStudentId" @submitted="onSubmitted" @cancel="closeSubmission" />
+      <StudentMobileEntry v-if="!handheld && mobileEntryStudentId && mobileEntryStudentId===selectedStudentId" :key="`mobile-entry-${mobileEntryStudentId}`" :student-id="mobileEntryStudentId" @close="closeMobileEntry" />
       <section v-if="resultTaskId" class="panel feedback" aria-labelledby="feedback-heading">
 <div class="section-heading">
 <h2 id="feedback-heading">作业反馈</h2>
@@ -593,11 +708,11 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 </div>
 <p class="muted">点击提醒可定位到对应作业。</p>
 </section>
-        <section v-if="reminders.attention.length" class="reminder-card priority-card">
-<h2>优先处理 <span class="list-count">{{ reminders.attention.length }}</span></h2>
-<button v-for="item in reminders.attention.slice(0,3)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
+        <section v-if="reminders.overdue.length" class="reminder-card priority-card">
+<h2>已过截止 <span class="list-count">{{ reminders.overdue.length }}</span></h2>
+<button v-for="item in reminders.overdue.slice(0,3)" :key="item.id" class="deadline-item" :aria-label="`定位作业：${item.title}`" @click="locateAssignment(item)">
 <span>{{ item.title }} <span aria-hidden="true">↗</span></span>
-<small>{{ assignmentGroup(item)==='todo' ? `已过截止 · ${dateLabel(item.due_at)}` : taskLabel(item.task_status) }}</small>
+<small>{{ dateLabel(item.due_at) }}</small>
 </button>
 </section>
         <section class="reminder-card">
@@ -617,12 +732,12 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <button v-if="reminders.review.length>2" class="text-button" @click="showReminder('review')">查看全部待复核 →</button>
 </section>
         <section class="reminder-card">
-<p class="eyebrow">错题待办</p>
-<h2>待订正错题</h2>
-<p v-if="!selectedStudentId" class="muted">请先选择本人学生身份。</p>
+<p class="eyebrow">错题库</p>
+<h2>按学科、作业回看</h2>
+<p v-if="!selectedStudentId" class="muted">请先核对学生绑定。</p>
 <p v-else-if="loadingMistakes" class="muted">正在读取错题…</p>
-<p v-else-if="mistakeError" class="muted">错题待办暂不可用，请到错题库重试。</p>
-<p v-else class="muted">{{ openMistakes.length ? `${openMistakes.length} 道题等待订正` : '当前没有待订正的错题。' }}</p>
+<p v-else-if="mistakeError" class="muted">错题暂不可用，请到错题库重试。</p>
+<p v-else class="muted">{{ mistakes.length ? `已关联 ${mistakes.length} 道错题；进入后一次只显示一个学科。` : '当前没有已关联的错题。' }}</p>
 <router-link class="side-link" to="/student/mistakes">进入我的错题库 →</router-link>
 </section>
         <p class="quiet-note">选做题由你决定是否挑战，未作答不代表做错。</p>
@@ -633,23 +748,33 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 <h2 id="paper-heading">{{ paperTitle }}</h2>
 <button class="secondary" @click="closePaper">关闭试卷</button>
 </header>
+<div v-if="phonePrintAvailable && paperAssignment?.status==='published' && paperAssignment.assignment_mode==='uniform_mixed'" class="paper-phone-action">
+<button ref="phonePrintButton" type="button" class="secondary" :disabled="!!uploader?.busy" @click="openPhonePrint(paperAssignment)">手机扫码打印</button>
+<span class="muted">将这份试卷发到手机打开、下载和打印</span>
+</div>
 <p v-if="paperBusy" role="status">正在读取正式发布的试卷…</p>
 <p v-if="paperError" class="notice error" role="alert">{{ paperError }}</p>
+<button v-if="paperError && paperAssignment" type="button" class="secondary" @click="openPaper(paperAssignment)">重新读取试卷</button>
 <template v-if="paperUrl">
-<p class="muted">打开试卷窗口后，可使用 PDF 打印图标或浏览器打印（Ctrl+P）。</p>
+<p v-if="handheld && paperInline" class="paper-ready" role="status">试卷已就绪，直接在手机打开或下载，无需扫码。</p>
+<p v-if="handheld" class="muted">打开原卷后，在浏览器“分享 / 更多”或阅读器中选择“打印”。若未出现打印入口，请先下载，再用阅读器打开。</p>
+<p v-else class="muted">打开试卷窗口后，可使用 PDF 打印图标或浏览器打印（Ctrl+P）。</p>
 <div class="paper-actions">
 <a v-if="paperInline" :href="paperUrl" target="_blank" rel="noopener noreferrer">打开试卷 / 打印</a>
-<a :href="paperUrl" :download="`${paperTitle}.${paperFormat || 'pdf'}`">下载试卷</a>
+<a :href="paperUrl" :download="paperFilename">下载试卷</a>
 </div>
-<iframe v-if="paperInline && paperFormat==='pdf'" :src="paperUrl" title="正式发布试卷预览">
+<iframe v-if="!handheld && paperKind==='pdf'" :src="paperUrl" title="正式发布试卷预览">
 </iframe>
-<img v-else-if="paperInline" :src="paperUrl" alt="正式发布的试卷" />
-<p v-else class="muted">此格式不支持浏览器预览，请下载后使用对应软件打开并打印。</p>
+<img v-if="paperKind==='image'" :src="paperUrl" alt="正式发布的试卷" />
+<p v-if="!paperInline" class="muted">此格式不支持浏览器预览，请下载后使用对应软件打开并打印。</p>
 </template>
+<StudentPhonePrint v-if="!handheld && printAssignment && selectedStudentId" :key="`print-${printAssignment.id}-${selectedStudentId}`" :assignment="printAssignment" :student-id="selectedStudentId" @close="closePhonePrint" />
 </dialog>
   </div>
 </template>
 <style scoped>
+.personal-layout{min-width:0}
+.paper-phone-action{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}.paper-phone-action .muted{font-size:12px;line-height:1.6}
 .student-v1{container-type:inline-size;color:#263d32;max-width:1600px;margin:0 auto;padding:6px 0 34px;min-width:0}
 .page-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}
 .date-line,.eyebrow{color:#6d8275;font-size:12px;letter-spacing:.06em;margin:0 0 10px}
@@ -694,13 +819,13 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 .subject-pill{padding:3px 7px}
 .status-pill{background:#f4f3ed;color:#81765c;line-height:1.5;padding:3px 7px}
 .status-pill.review{background:#fcf4df;color:#8e723a}
-.status-pill.completed{background:#e7f3ea;color:#376d4a}
-.status-pill.attention{background:#fbedeb;color:#a7574c}
+.status-pill.submitted{background:#e7f3ea;color:#376d4a}
 .assignment-card h3{font-size:16px;margin:7px 0 4px;line-height:1.5;overflow-wrap:anywhere}
 .meta,.description,.deadline,.muted{font-size:12px;line-height:1.8;color:#7b8b80}
 .description{white-space:pre-line}
 .deadline{margin:3px 0 0;font-size:11px}
 .deadline.overdue{color:#a95a47}
+.submission-detail{font-size:12px;line-height:1.7;color:#697e70;margin:5px 0 0}
 .card-actions,.paper-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
 .card-actions button{padding:7px 11px;font-size:12px;min-height:33px}
 .action-note{font-size:11px;color:#8a784e;line-height:1.6}
@@ -740,6 +865,7 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
 .paper-dialog iframe{width:100%;height:65dvh;border:1px solid #d3dfd7;margin-top:16px}
 .paper-dialog img{max-width:100%;display:block;margin:20px auto}
 .paper-actions a{padding:10px 15px;border:1px solid #c6d6cb;border-radius:8px;color:#27613f;text-decoration:none;font-size:13px}
+.paper-ready{padding:12px;background:#edf5ef;border-radius:8px;color:#27613f;font-size:14px;line-height:1.7}
 .binding-fields{display:flex;align-items:end;gap:14px;flex-wrap:wrap;margin-top:24px}
 .binding-fields label{display:grid;gap:8px;font-size:13px}
 .binding-panel p{font-size:13px;line-height:1.8;color:#6c8271}
@@ -765,5 +891,31 @@ onBeforeUnmount(() => { serial++; clearResult(); closePaper(); window.removeEven
   .section-heading{align-items:start;flex-wrap:wrap}
   .card-actions button{width:100%}
 }
+@media(max-width:767px){
+  .student-v1{padding-bottom:18px;overflow-wrap:anywhere}
+  .student-v1 button{min-height:44px}
+  .page-header{margin-bottom:16px}
+  .section-heading{align-items:start;flex-wrap:wrap}
+  .section-heading h2{min-width:0;overflow-wrap:anywhere}
+  .section-heading button,.student-v1 .status-tabs button,.student-v1 .text-button{min-height:44px}
+  .student-v1 input,.student-v1 select{min-height:44px;font-size:16px}
+  .student-v1 .status-tabs{gap:20px}
+  .filters,.filters label,.search{min-width:0}
+  .filters input{width:100%;min-width:0}
+  .assignment-card{display:block;padding:16px 0}
+  .card-actions{display:flex;gap:8px;margin-top:12px}
+  .card-actions button{flex:1 1 135px;min-height:44px;width:auto;font-size:13px;padding:10px}
+  .action-note{flex-basis:100%;text-align:left}
+  .paper-dialog{width:100%;max-width:100%;max-height:100dvh;margin:auto 0 0;border-radius:16px 16px 0 0;padding:20px max(16px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));overflow:auto;overscroll-behavior:contain}
+  .paper-dialog .section-heading h2{flex:1 1 180px;line-height:1.5}
+  .paper-dialog button{min-height:44px}
+  .paper-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+  .paper-actions a{display:flex;align-items:center;justify-content:center;min-height:44px;padding:10px;box-sizing:border-box;font-size:15px}
+  .paper-actions a:first-child{background:#185d49;border-color:#185d49;color:#fff}
+  .paper-dialog img{height:auto;max-height:none}
+  .score strong{font-size:30px}
+  .question-feedback>div{flex-wrap:wrap}
+}
 
+.list-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.phone-workspace-entry{min-height:44px;border:1px solid #b4d4c1;background:#edf6ef;color:#185d49;border-radius:9px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer}.phone-workspace-entry:disabled{opacity:.5;cursor:not-allowed}.phone-workspace-entry:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
 </style>

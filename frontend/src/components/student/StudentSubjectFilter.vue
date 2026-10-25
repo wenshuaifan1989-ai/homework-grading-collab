@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { subjectLabel } from '@/student/workbench'
-defineProps<{ subjects: string[]; modelValue: string; vertical?: boolean; counts?: Record<string, number> }>()
+withDefaults(defineProps<{ subjects: string[]; modelValue: string; vertical?: boolean; counts?: Record<string, number>; allowAll?: boolean }>(), { allowAll: true })
 defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
 <template>
   <nav class="subjects" :class="{ vertical }" aria-label="学科导航">
-    <button type="button" :aria-pressed="!modelValue" @click="$emit('update:modelValue', '')"><span>全部学科</span><small v-if="counts">{{ counts[''] ?? 0 }}</small></button>
-    <button v-for="subject in subjects" :key="subject" type="button" :aria-pressed="modelValue === subject" @click="$emit('update:modelValue', subject)"><span>{{ subjectLabel(subject) }}</span><small v-if="counts">{{ counts[subject] ?? 0 }}</small></button>
+    <button v-if="allowAll" type="button" :aria-pressed="!modelValue" @click="$emit('update:modelValue', '')"><span>全部学科</span><small v-if="counts">{{ counts[''] ?? 0 }}</small></button>
+    <button v-for="subject in subjects" :key="subject" type="button" :aria-pressed="modelValue === subject" @click="$emit('update:modelValue', subject)"><span>{{ subject==='__unconfirmed__' ? '学科待核对' : subjectLabel(subject) }}</span><small v-if="counts">{{ counts[subject] ?? 0 }}</small></button>
   </nav>
 </template>
 <style scoped>
@@ -19,4 +19,5 @@ defineEmits<{ 'update:modelValue': [value: string] }>()
 .vertical button{width:100%;background:transparent;border-color:transparent}
 .vertical button[aria-pressed=true]{background:#e0eee5;border-color:#c8dfcf}
 @container(min-width:230px){.vertical{display:flex;flex-wrap:wrap}.vertical button{width:auto;border-color:#dde6e1}}
+@media(pointer:coarse),(max-width:700px){.subjects button{min-height:44px;font-size:14px}.subjects{gap:8px}}
 </style>

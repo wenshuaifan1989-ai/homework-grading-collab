@@ -1,397 +1,290 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
-import { paperApi, type MistakeItem } from '@/api/paper';
-import { studentApi, type LinkedStudent, type StudentBinding } from '@/api/student';
-import StudentWorkbench from '@/components/student/StudentWorkbench.vue';
-import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue';
-import StudentProfilePanel from '@/components/student/StudentProfilePanel.vue';
-import { useAuthStore } from '@/stores/auth';
-import { studentIdentityLabel, type ProfileMetric } from '@/student/profile';
-import { mistakeLabel, subjectLabel, trustedQuestion } from '@/student/workbench';
-const students = ref<LinkedStudent[]>([]);
-const auth = useAuthStore();
-const binding = ref<StudentBinding | null>(null);
-const studentId = ref<number | null>(null);
-const mistakes = ref<MistakeItem[]>([]);
-const subject = ref('');
-const knowledge = ref('');
-const dateFilter = ref('');
-const state = ref('todo');
-const drafts = ref<Record<number, string>>({});
-const history = ref<Record<number, Array<Record<string, any>>>>({});
-const historyOpen = ref<Record<number, boolean>>({});
-const historyError = ref<Record<number, string>>({});
-const historyBusy = ref<Record<number, boolean>>({});
-const evidence = ref<Record<string, string>>({});
-const imageKind = ref<Record<number, 'crop' | 'original'>>({});
-const imageBusy = ref<Record<number, boolean>>({});
-const selected = ref<Set<number>>(new Set());
-const reviewDialog = ref<HTMLDialogElement | null>(null);
-const loading = ref(false);
-const mistakesLoaded = ref(false);
-const busyId = ref<number | null>(null);
-const error = ref('');
-const notice = ref('');
-let serial = 0;
-const subjects = computed(() => [...new Set(mistakes.value.map(item => item.subject).filter(Boolean))] as string[]);
-const subjectCounts = computed(() => mistakesLoaded.value ? mistakes.value.reduce<Record<string, number>>((counts, item) => {
-    counts[''] = (counts[''] || 0) + 1;
-    if (item.subject) counts[item.subject] = (counts[item.subject] || 0) + 1;
-    return counts;
-}, { '': 0 }) : undefined);
-const knowledgePoints = computed(() => [...new Set(mistakes.value.flatMap(item => item.knowledge_points || []))].sort());
-const visibleMistakes = computed(() => mistakes.value.filter(item => (!subject.value || item.subject === subject.value) && (!dateFilter.value || item.created_at?.slice(0, 10) === dateFilter.value) && (!knowledge.value || (knowledge.value === '__unclassified__' ? !item.knowledge_points?.length : item.knowledge_points?.includes(knowledge.value))) && (state.value === 'all' || (state.value === 'todo' && ['open', 'pending'].includes(item.status)) || (state.value === 'review' && item.status === 'correction_submitted') || (state.value === 'done' && item.status === 'mastered'))));
-const reviewItems = computed(() => mistakes.value.filter(item => selected.value.has(item.id)));
-const pendingCount = computed(() => mistakes.value.filter(item => ['open', 'pending'].includes(item.status)).length);
-const reviewCount = computed(() => mistakes.value.filter(item => item.status === 'correction_submitted').length);
-const doneCount = computed(() => mistakes.value.filter(item => item.status === 'mastered').length);
-const hasFilters = computed(() => !!subject.value || !!knowledge.value || !!dateFilter.value || state.value !== 'all');
-const selectedStudent = computed(() => students.value.find(item => item.student_id === studentId.value));
-const profileMetrics = computed<ProfileMetric[]>(() => selectedStudent.value ? [
-    { label: '待订正错题', value: mistakesLoaded.value ? pendingCount.value : null, unit: '题' },
-    { label: '待老师审核', value: mistakesLoaded.value ? reviewCount.value : null, unit: '题' },
-    { label: '老师已审核', value: mistakesLoaded.value ? doneCount.value : null, unit: '题' },
-] : []);
-function clearFilters() { subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'all'; }
-function apiError(err: any, fallback: string) { return err?.response?.data?.detail || err?.response?.data?.message || fallback; }
-function hasDraft() { return Object.values(drafts.value).some(value => value.trim()); }
-function canLeave() { if (busyId.value !== null) {
-    error.value = '订正正在提交，请等候结果后再操作。';
-    return false;
-} return !hasDraft() || window.confirm('还有未提交的订正内容。离开会丢弃草稿，是否继续？'); }
-onBeforeRouteLeave(canLeave);
-function beforeUnload(event: BeforeUnloadEvent) { if (hasDraft() || busyId.value !== null) {
-    event.preventDefault();
-    event.returnValue = '';
-} }
-function clearEvidence() { Object.values(evidence.value).forEach(url => URL.revokeObjectURL(url)); evidence.value = {}; imageKind.value = {}; }
-async function loadStudents() { loading.value = true; error.value = ''; try {
-    binding.value = null;
-    // A missing number must not block access to already authorized learning records.
-    if (auth.user?.role === 'student') {
-        try { binding.value = (await studentApi.getBinding()).data.data; } catch { /* Keep the identity label unconfirmed. */ }
-    }
-    students.value = ((await studentApi.getMyStudents()).data.data || []).filter(item => item.status === 'active');
-    studentId.value = students.value.length === 1 ? students.value[0].student_id : null;
-    if (studentId.value)
-        await loadMistakes();
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
+import { paperApi, type MistakeItem } from '@/api/paper'
+import { studentApi, type LinkedStudent } from '@/api/student'
+import StudentWorkbench from '@/components/student/StudentWorkbench.vue'
+import StudentStudyNavigation from '@/components/student/StudentStudyNavigation.vue'
+import StudentMistakePrint from '@/components/student/StudentMistakePrint.vue'
+import { assignmentMistakes, identityIssue, mistakeSubject, orderedSubjects, singleStudent, studentExperience, validMistakeReceipt, type StudentMistakeMaterial } from '@/student/experience'
+import { subjectLabel } from '@/student/workbench'
+import { safeQuestionImage, type MistakePrintSelection } from '@/student/mistakePrint'
+
+const students = ref<LinkedStudent[]>([])
+const studentId = ref<number | null>(null)
+const mistakes = ref<MistakeItem[]>([])
+const deleted = ref<MistakeItem[]>([])
+const subject = ref('')
+const recycleBin = ref(false)
+const selectedIds = ref<Set<number>>(new Set())
+const materials = ref<Record<number, StudentMistakeMaterial>>({})
+const materialErrors = ref<Record<number, string>>({})
+const loadingMaterials = ref(false)
+const printOpen = ref(false)
+const printSelection = ref<MistakePrintSelection[]>([])
+const detailDialog = ref<HTMLDialogElement | null>(null)
+const detailItem = ref<MistakeItem | null>(null)
+const detailKind = ref<'own' | 'standard'>('own')
+const detailOwnText = ref('')
+const detailImage = ref('')
+const detailBusy = ref(false)
+const detailError = ref('')
+const detailTriggerId = ref('')
+const pendingAction = ref<{ id: number; deleted: boolean; key: string } | null>(null)
+const confirmDeleteId = ref<number | null>(null)
+const loading = ref(false)
+const loaded = ref(false)
+const busyId = ref<number | null>(null)
+const error = ref('')
+const notice = ref('')
+let serial = 0
+let detailSerial = 0
+
+const subjects = computed(() => orderedSubjects([...mistakes.value, ...deleted.value]))
+const shownItems = computed(() => recycleBin.value ? deleted.value : mistakes.value)
+const subjectCounts = computed(() => shownItems.value.reduce<Record<string, number>>((counts, item) => {
+  const code = mistakeSubject(item); counts[code] = (counts[code] || 0) + 1; return counts
+}, {}))
+const groups = computed(() => assignmentMistakes(shownItems.value, subject.value))
+const visibleItems = computed(() => groups.value.flatMap(group => group.items).filter(item => item.student_id === studentId.value))
+const shownCount = computed(() => visibleItems.value.length)
+const selectionCount = computed(() => visibleItems.value.filter(item => selectedIds.value.has(item.id)).length)
+const allSelected = computed(() => !!visibleItems.value.length && selectionCount.value === visibleItems.value.length)
+const partiallySelected = computed(() => selectionCount.value > 0 && !allSelected.value)
+const canDelete = computed(() => !!studentExperience.changeMistake && !!studentExperience.deletedMistakes)
+const detailAnswer = computed(() => detailItem.value ? publicAnswer(detailItem.value) : '')
+function apiError(err: any, fallback: string): string { return err?.response?.data?.detail || err?.response?.data?.message || err?.message || fallback }
+function canLeave() {
+  if (busyId.value !== null) { error.value = '操作正在提交，请等候结果后再离开。'; return false }
+  if (pendingAction.value) { error.value = '上一项删除或恢复尚未确认，请先用原操作重试。'; return false }
+  return true
 }
-catch (err: any) {
-    error.value = apiError(err, '读取学生身份失败，请重试。');
+onBeforeRouteLeave(canLeave)
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (busyId.value !== null || pendingAction.value) { event.preventDefault(); event.returnValue = '' }
 }
-finally {
-    loading.value = false;
-} }
-async function loadMistakes() { const id = studentId.value, request = ++serial; if (!id) {
-    mistakes.value = [];
-    mistakesLoaded.value = false;
-    loading.value = false;
-    return;
-} loading.value = true; error.value = ''; try {
-    const response = await paperApi.studentMistakes(id);
-    if (request !== serial)
-        return;
-    mistakes.value = response.items || [];
-        mistakesLoaded.value = true;
-    selected.value = new Set([...selected.value].filter(key => mistakes.value.some(item => item.id === key)));
-    if (subject.value && !subjects.value.includes(subject.value))
-        subject.value = '';
+function clearDetail() {
+  detailSerial++
+  if (detailImage.value) URL.revokeObjectURL(detailImage.value)
+  detailImage.value = ''; detailOwnText.value = ''; detailBusy.value = false; detailError.value = ''
+  detailItem.value = null
+  detailDialog.value?.close()
 }
-catch (err: any) {
-    if (request === serial)
-        error.value = apiError(err, '错题库暂时无法读取，请重试。');
+async function closeDetail() {
+  const trigger = detailTriggerId.value
+  clearDetail()
+  await nextTick()
+  document.getElementById(trigger)?.focus()
 }
-finally {
-    if (request === serial)
-        loading.value = false;
-} }
-async function selectStudent(event: Event) { const element = event.target as HTMLSelectElement; if (!canLeave()) {
-    element.value = String(studentId.value || '');
-    return;
-} serial++; studentId.value = Number(element.value) || null; mistakes.value = []; mistakesLoaded.value = false; drafts.value = {}; history.value = {}; historyOpen.value = {}; historyError.value = {}; selected.value = new Set(); clearEvidence(); subject.value = ''; knowledge.value = ''; dateFilter.value = ''; state.value = 'todo'; notice.value = ''; await loadMistakes(); }
-async function showImage(item: MistakeItem, kind: 'crop' | 'original') { const key = `${item.id}:${kind}`, id = studentId.value; if (imageBusy.value[item.id])
-    return; imageKind.value[item.id] = kind; if (evidence.value[key])
-    return; imageBusy.value[item.id] = true; error.value = ''; try {
-    const blob = await paperApi.image(kind === 'crop' ? item.crop_url : item.original_url, kind);
-    if (studentId.value !== id)
-        return;
-    evidence.value[key] = URL.createObjectURL(blob);
+function clearSelection() {
+  selectedIds.value = new Set(); printOpen.value = false; printSelection.value = []
+  clearDetail(); confirmDeleteId.value = null
 }
-catch (err: any) {
-    if (studentId.value === id)
-        error.value = apiError(err, '本人作答图片暂时无法读取。');
+function setSubject(value: string) {
+  if (value === subject.value || !canLeave()) return
+  clearSelection(); subject.value = value
 }
-finally {
-    imageBusy.value[item.id] = false;
-} }
-async function loadHistory(item: MistakeItem) { const id = studentId.value; historyBusy.value[item.id] = true; historyError.value[item.id] = ''; try {
-    const response = await paperApi.correctionHistory(item.id);
-    if (studentId.value === id)
-        history.value[item.id] = response.items || [];
+function toggleRecycleBin() {
+  if (!canDelete.value || !canLeave()) return
+  clearSelection(); recycleBin.value = !recycleBin.value
 }
-catch (err: any) {
-    if (studentId.value === id)
-        historyError.value[item.id] = apiError(err, '订正记录读取失败，请重试。');
+function toggleAll() {
+  if (recycleBin.value || loading.value || busyId.value !== null) return
+  selectedIds.value = allSelected.value ? new Set() : new Set(visibleItems.value.map(item => item.id))
 }
-finally {
-    historyBusy.value[item.id] = false;
-} }
-async function toggleHistory(item: MistakeItem) { historyOpen.value[item.id] = !historyOpen.value[item.id]; if (historyOpen.value[item.id])
-    await loadHistory(item); }
-async function submitCorrection(item: MistakeItem) { if (busyId.value !== null)
-    return; const answer = (drafts.value[item.id] || '').trim(); if (!answer) {
-    error.value = '请先写下你的订正答案。';
-    return;
-} busyId.value = item.id; error.value = ''; notice.value = ''; try {
-    await paperApi.submitCorrection(item.id, answer);
-    drafts.value[item.id] = '';
-    notice.value = '订正已提交，等待老师审核。原始成绩和历史记录保留。';
-    await loadMistakes();
-    if (historyOpen.value[item.id])
-        await loadHistory(item);
+function toggleItem(item: MistakeItem) {
+  if (recycleBin.value || loading.value || busyId.value !== null || !visibleItems.value.some(row => row.id === item.id)) return
+  const next = new Set(selectedIds.value)
+  if (next.has(item.id)) next.delete(item.id); else next.add(item.id)
+  selectedIds.value = next
 }
-catch (err: any) {
-    error.value = apiError(err, '订正提交失败，草稿已保留，请重试。');
+function materialFor(item: MistakeItem): StudentMistakeMaterial | null {
+  const material = materials.value[item.id]
+  return item.student_id === studentId.value && material?.student_id === studentId.value && material.mistake_id === item.id ? material : null
 }
-finally {
-    busyId.value = null;
-} }
-async function markMastered(item: MistakeItem) { if (busyId.value !== null)
-    return; busyId.value = item.id; error.value = ''; notice.value = ''; try {
-    await paperApi.markMastered(item.id);
-    notice.value = '已记录自评掌握，仍以老师审核结果为准。';
-    await loadMistakes();
-    if (historyOpen.value[item.id])
-        await loadHistory(item);
+function publicAnswer(item: MistakeItem): string {
+  const answer = materialFor(item)?.standard_answer
+  return answer?.released === true && typeof answer.text === 'string' ? answer.text.trim() : ''
 }
-catch (err: any) {
-    error.value = apiError(err, '暂时无法记录自评掌握，请重试。');
+function answerHint(item: MistakeItem): string {
+  if (loadingMaterials.value) return '正在核对标准答案的公开权限'
+  if (materialErrors.value[item.id]) return materialErrors.value[item.id]
+  return publicAnswer(item) ? '查看老师已公开的标准答案' : '标准答案暂未公开或尚未提供'
 }
-finally {
-    busyId.value = null;
-} }
-function selectForReview(item: MistakeItem, event: Event) { if ((event.target as HTMLInputElement).checked)
-    selected.value.add(item.id);
-else
-    selected.value.delete(item.id); }
-onMounted(() => { void loadStudents(); window.addEventListener('beforeunload', beforeUnload); });
-onBeforeUnmount(() => { serial++; clearEvidence(); window.removeEventListener('beforeunload', beforeUnload); });
+function questionText(item: MistakeItem): string { return materialFor(item)?.question?.text || item.question?.question_text || '题干资料待提供' }
+function questionImage(item: MistakeItem): string | null { return safeQuestionImage(materialFor(item)?.question?.image_data_url) }
+function questionOptions(item: MistakeItem): string[] {
+  const options = materialFor(item)?.question?.options ?? item.question?.options
+  if (Array.isArray(options)) return options.filter(value => typeof value === 'string')
+  if (options && typeof options === 'object') return Object.entries(options).map(([key, value]) => `${key}. ${value}`)
+  return []
+}
+// Only the explicitly supplied student adapter establishes answer publication and clean question material.
+async function loadMaterials(items: MistakeItem[], id: number, request: number) {
+  const provider = studentExperience.mistakeMaterial
+  materials.value = {}; materialErrors.value = {}
+  if (!provider) { loadingMaterials.value = false; return }
+  loadingMaterials.value = true
+  const results = await Promise.all(items.map(async item => {
+    try {
+      const material = await provider(id, item.id)
+      if (!material || material.student_id !== id || material.mistake_id !== item.id) throw Error('题目资料与当前学生不一致')
+      return { id: item.id, material, message: '' }
+    } catch (err: any) { return { id: item.id, material: null, message: apiError(err, '标准答案暂不可查看') } }
+  }))
+  if (request !== serial || studentId.value !== id) return
+  const next: Record<number, StudentMistakeMaterial> = {}, issues: Record<number, string> = {}
+  for (const result of results) {
+    if (result.material) next[result.id] = result.material
+    else issues[result.id] = result.message
+  }
+  materials.value = next; materialErrors.value = issues; loadingMaterials.value = false
+}
+async function loadStudents() {
+  if (!canLeave()) return
+  const request = ++serial
+  clearSelection(); materials.value = {}; loading.value = true; error.value = ''; studentId.value = null
+  try {
+    const response = await studentApi.getMyStudents()
+    if (request !== serial) return
+    students.value = (response.data.data || []).filter(item => item.status === 'active')
+    studentId.value = singleStudent(students.value)?.student_id || null
+    if (studentId.value) await loadMistakes()
+    else { mistakes.value = []; deleted.value = []; error.value = identityIssue(students.value) }
+  } catch (err: any) { if (request === serial) error.value = apiError(err, '读取学生身份失败，请重试。') }
+  finally { if (request === serial) loading.value = false }
+}
+async function loadMistakes() {
+  clearSelection()
+  const id = studentId.value, request = ++serial
+  materials.value = {}; materialErrors.value = {}; loadingMaterials.value = false
+  if (!id) { mistakes.value = []; deleted.value = []; loaded.value = false; return }
+  loading.value = true; error.value = ''
+  try {
+    const [active, removed] = await Promise.all([
+      paperApi.studentMistakes(id),
+      studentExperience.deletedMistakes ? studentExperience.deletedMistakes(id) : Promise.resolve([]),
+    ])
+    if (request !== serial || studentId.value !== id) return
+    mistakes.value = (active.items || []).filter(item => item.student_id === id)
+    deleted.value = (removed || []).filter(item => item.student_id === id)
+    loaded.value = true
+    const available = orderedSubjects([...mistakes.value, ...deleted.value])
+    if (!available.includes(subject.value)) subject.value = available[0] || ''
+    await loadMaterials([...mistakes.value, ...deleted.value], id, request)
+  } catch (err: any) { if (request === serial) error.value = apiError(err, '错题库暂时无法读取，请重试。') }
+  finally { if (request === serial) loading.value = false }
+}
+function refreshMistakes() { if (canLeave()) return loadMistakes() }
+async function showDetail(item: MistakeItem, kind: 'own' | 'standard') {
+  if (!visibleItems.value.some(row => row.id === item.id) || (kind === 'standard' && !publicAnswer(item))) return
+  clearDetail(); detailItem.value = item; detailKind.value = kind
+  const request = detailSerial, id = studentId.value
+  detailTriggerId.value = `mistake-${item.id}-${kind}`
+  const ownText = materialFor(item)?.student_answer
+  detailOwnText.value = typeof ownText === 'string' ? ownText.trim() : ''
+  await nextTick()
+  if (request !== detailSerial || studentId.value !== id || detailItem.value?.id !== item.id) return
+  detailDialog.value?.showModal()
+  if (kind === 'own' && !detailOwnText.value) await showOwnImage('crop')
+}
+async function showOwnImage(kind: 'crop' | 'original') {
+  const item = detailItem.value, id = studentId.value
+  if (!item || detailKind.value !== 'own' || !id) return
+  const request = ++detailSerial
+  if (detailImage.value) URL.revokeObjectURL(detailImage.value)
+  detailImage.value = ''; detailBusy.value = true; detailError.value = ''
+  try {
+    const blob = await paperApi.image(kind === 'crop' ? item.crop_url : item.original_url, kind)
+    if (request !== detailSerial || studentId.value !== id || detailItem.value?.id !== item.id) return
+    if (!['image/png', 'image/jpeg', 'image/gif', 'image/bmp'].includes(blob.type.split(';')[0] || '')) throw Error('本人作答图片格式暂不支持，请联系老师核对。')
+    detailImage.value = URL.createObjectURL(blob)
+  } catch (err: any) { if (request === detailSerial) detailError.value = apiError(err, '本人作答暂时无法读取，请重试。') }
+  finally { if (request === detailSerial) detailBusy.value = false }
+}
+function openPrint() {
+  if (recycleBin.value || loading.value || loadingMaterials.value || !selectionCount.value || busyId.value !== null) return
+  printSelection.value = visibleItems.value.filter(item => selectedIds.value.has(item.id)).map(item => ({ item, material: materialFor(item) }))
+  printOpen.value = true
+}
+async function closePrint() { printOpen.value = false; printSelection.value = []; await nextTick(); document.getElementById('mistake-print-entry')?.focus() }
+function newActionKey() { return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `student-${Date.now()}-${Math.random().toString(36).slice(2)}` }
+function askDelete(item: MistakeItem) {
+  if (!canDelete.value || busyId.value !== null || item.student_id !== studentId.value || pendingAction.value) return
+  confirmDeleteId.value = item.id; notice.value = ''; error.value = ''
+}
+async function changeMistake(item: MistakeItem, shouldDelete: boolean) {
+  const id = studentId.value, request = serial
+  if (!id || item.student_id !== id || !canDelete.value || busyId.value !== null) return
+  if (shouldDelete && confirmDeleteId.value !== item.id && pendingAction.value?.id !== item.id) return
+  const pending = pendingAction.value
+  if (pending && (pending.id !== item.id || pending.deleted !== shouldDelete)) { error.value = '上一项操作结果还未确认，请先用原操作重试。'; return }
+  const action = pending || { id: item.id, deleted: shouldDelete, key: newActionKey() }
+  pendingAction.value = action; busyId.value = item.id; error.value = ''; notice.value = ''
+  try {
+    const receipt = await studentExperience.changeMistake!(id, item.id, shouldDelete, action.key)
+    if (studentId.value !== id || request !== serial) return
+    if (!validMistakeReceipt(receipt, id, item.id, shouldDelete)) throw Error('服务端回执与错题不一致，请联系老师核对。')
+    if (shouldDelete) { mistakes.value = mistakes.value.filter(row => row.id !== item.id); deleted.value = [...deleted.value, item] }
+    else { deleted.value = deleted.value.filter(row => row.id !== item.id); mistakes.value = [...mistakes.value, item] }
+    pendingAction.value = null; confirmDeleteId.value = null
+    notice.value = shouldDelete ? '已移到回收站，可随时恢复。' : '错题已恢复。'
+    await loadMistakes()
+  } catch (err: any) { error.value = `${apiError(err, '网络异常')} 操作结果尚未确认；请保留本页，用同一操作重试。` }
+  finally { busyId.value = null }
+}
+onMounted(() => { void loadStudents(); window.addEventListener('beforeunload', beforeUnload) })
+onBeforeUnmount(() => { serial++; clearDetail(); window.removeEventListener('beforeunload', beforeUnload) })
 </script>
+
 <template>
   <section class="mistake-workspace">
-    <header class="page-header">
-<div>
-<p class="eyebrow">学生学习工作台 · 回顾与订正</p>
-<h1>我的错题库</h1>
-<p class="muted">回看原题与本人作答，订正后查看老师审核记录。</p>
-</div>
-<div class="header-controls">
-<div class="page-account-actions">
-<label class="identity-picker">学生身份<select :value="studentId || ''" :disabled="busyId!==null" @change="selectStudent">
-<option value="">选择已绑定学生</option>
-<option v-for="(item, index) in students" :key="item.student_id" :value="item.student_id">{{ studentIdentityLabel(item, binding, index) }}</option>
-</select></label>
-<StudentProfilePanel :account="auth.user" :student="selectedStudent" :metrics="profileMetrics" :disabled="busyId!==null" />
-</div>
-<router-link to="/student">返回我的作业 →</router-link>
-</div>
-</header>
+    <header class="page-header"><p class="eyebrow">学生学习工作台 · 按作业回顾</p><h1>我的错题库</h1><p class="muted">一次查看一个学科，按作业选择题目。</p></header>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-<div v-if="notice" class="notice success" role="status"><span>{{ notice }}</span><button v-if="notice.startsWith('订正已提交') && state!=='review'" class="text-button" @click="state='review'">查看待老师审核</button></div>
+    <p v-if="notice" class="notice success" role="status">{{ notice }}</p>
     <StudentWorkbench>
-      <template #navigation>
-        <StudentStudyNavigation v-model="subject" page="mistakes" :subjects="subjects" :counts="subjectCounts" />
-      </template>
-      <section class="panel filter-panel">
-<div class="section-heading">
-<div>
-<h2>错题与订正 <span class="section-subject">{{ subject ? subjectLabel(subject) : '全部学科' }}</span><span v-if="mistakesLoaded" class="list-count">{{ visibleMistakes.length }} 题</span></h2>
-</div>
-<button class="text-button" :disabled="loading || busyId!==null" @click="loadMistakes">刷新错题</button>
-</div>
-<nav class="mistake-tabs" aria-label="错题状态筛选">
-<button type="button" :aria-pressed="state==='todo'" @click="state='todo'">待订正 <span>{{ mistakesLoaded ? pendingCount : '—' }}</span></button>
-<button type="button" :aria-pressed="state==='review'" @click="state='review'">待老师审核 <span>{{ mistakesLoaded ? reviewCount : '—' }}</span></button>
-<button type="button" :aria-pressed="state==='done'" @click="state='done'">老师已审核 <span>{{ mistakesLoaded ? doneCount : '—' }}</span></button>
-<button type="button" :aria-pressed="state==='all'" @click="state='all'">全部错题 <span>{{ mistakesLoaded ? mistakes.length : '—' }}</span></button>
-</nav>
-<div class="filter-tools">
-<details class="advanced-filters">
-<summary>知识点与日期筛选<span v-if="knowledge || dateFilter" class="active-filters">已筛选</span></summary>
-<div class="filters">
-<label>知识点<select v-model="knowledge">
-<option value="">全部知识点</option>
-<option value="__unclassified__">待归类</option>
-<option v-for="point in knowledgePoints" :key="point" :value="point">{{ point }}</option>
-</select>
-</label>
-<label>日期<input v-model="dateFilter" type="date" />
-</label>
-</div>
-</details>
-<button v-if="hasFilters" type="button" class="text-button" @click="clearFilters">清除筛选</button>
-</div>
-<p v-if="knowledge || dateFilter" class="filter-summary">当前条件：<span v-if="knowledge">{{ knowledge==='__unclassified__' ? '知识点待归类' : knowledge }}</span><span v-if="dateFilter">{{ dateFilter }}</span></p>
-</section>
-      <p v-if="loading" class="empty" role="status">正在读取本人错题…</p>
-<p v-else-if="!studentId" class="empty">请先选择已绑定的学生身份。</p>
-<div v-else-if="!visibleMistakes.length && !error" class="empty"><p>{{ state==='todo' ? '当前范围没有待订正错题，可以查看待老师审核或全部错题。' : '当前范围暂无错题，可以调整筛选条件。' }}</p><button v-if="hasFilters" type="button" class="text-button" @click="clearFilters">查看全部错题</button></div>
-      <article v-for="item in visibleMistakes" :key="item.id" class="panel mistake-card">
-<div class="card-top">
-<span class="subject-pill">{{ subjectLabel(item.subject) }}</span>
-<span class="status-pill">{{ mistakeLabel(item.status) }}</span>
-</div>
-<p class="source-label">{{ item.assignment_title || '原作业' }} · 第 {{ item.question_no || '待核对' }} 题</p>
-<h2>{{ item.question?.question_text || '题面待老师核对' }}</h2>
-<ul v-if="item.question?.options" class="options">
-<li v-for="(option,key) in item.question.options" :key="key">{{ option }}</li>
-</ul>
-<div v-if="item.knowledge_points?.length" class="knowledge-chips">
-<span v-for="point in item.knowledge_points" :key="point">{{ point }}</span>
-</div>
-<p v-else class="muted">知识点待归类</p>
-<p v-if="item.grading_result?.student_answer" class="own-answer">我的作答：{{ item.grading_result.student_answer }}</p>
-<p v-if="trustedQuestion(item.grading_result)" class="muted">本次得分 {{ item.grading_result!.score }} / {{ item.grading_result!.max_score }}</p>
-<p v-else class="muted">判分待老师核对，暂不显示分数。</p>
-<div class="actions">
-<button class="secondary" :disabled="imageBusy[item.id]" @click="showImage(item,'crop')">查看原题与作答</button>
-<button class="secondary" :disabled="imageBusy[item.id]" @click="showImage(item,'original')">查看本人原始作业页</button>
-</div>
-<img v-if="evidence[`${item.id}:${imageKind[item.id]||'crop'}`]" class="evidence" :src="evidence[`${item.id}:${imageKind[item.id]||'crop'}`]" alt="本人作业证据" />
-<label class="correction-field">我的订正<textarea v-model="drafts[item.id]" :disabled="busyId===item.id" rows="3" placeholder="写下重新思考后的答案与过程" />
-</label>
-<div class="actions">
-<button :disabled="busyId!==null" @click="submitCorrection(item)">{{ busyId===item.id ? '正在提交…' : '提交订正' }}</button>
-<button class="secondary" :disabled="busyId!==null" @click="markMastered(item)">自评已掌握</button>
-<button class="text-button" :disabled="historyBusy[item.id]" @click="toggleHistory(item)">订正与审核记录</button>
-</div>
-<label class="review-choice">
-<input type="checkbox" :checked="selected.has(item.id)" @change="selectForReview(item,$event)" />加入本次复习清单</label>
-<section v-if="historyOpen[item.id]" class="history">
-<p v-if="historyBusy[item.id]" role="status">正在读取记录…</p>
-<p v-else-if="historyError[item.id]" class="notice error" role="alert">{{ historyError[item.id] }}</p>
-<p v-else-if="!history[item.id]?.length" class="muted">还没有订正记录。</p>
-<article v-for="attempt in history[item.id] || []" :key="attempt.id">
-<strong>{{ attempt.attempt_type==='mark_mastered' ? '自评掌握' : '订正' }} · {{ mistakeLabel(attempt.status) }}</strong>
-<p v-if="attempt.submitted_answer">我的订正：{{ attempt.submitted_answer }}</p>
-<p v-if="attempt.review_feedback">老师反馈：{{ attempt.review_feedback }}</p>
-<small>{{ attempt.created_at?.replace('T',' ') }}</small>
-</article>
-</section>
-</article>
-      <template #reminders>
-<section class="reminder-card">
-<p class="eyebrow">学习待办</p>
-<h2>订正进度</h2>
-<p class="count-line">
-<span>待订正</span>
-<strong>{{ mistakesLoaded ? pendingCount : '—' }}</strong>
-</p>
-<p class="count-line">
-<span>待老师审核</span>
-<strong>{{ mistakesLoaded ? reviewCount : '—' }}</strong>
-</p>
-<p class="muted">自评掌握与老师审核是两件事。订正不会覆盖原始成绩。</p>
-</section>
-<section class="reminder-card">
-<p class="eyebrow">本次复习</p>
-<h2>我的复习清单</h2>
-<p class="muted">从原题中选几道，再认真练习一次。</p>
-<button class="review-button" :disabled="!reviewItems.length" @click="reviewDialog?.showModal()">查看清单（{{ reviewItems.length }}）</button>
-<p class="small-note">本清单只在当前页面保留，离开或刷新后需重新选择。</p>
-</section>
-</template>
+      <template #navigation><StudentStudyNavigation :model-value="subject" page="mistakes" :subjects="subjects" :counts="subjectCounts" @update:model-value="setSubject" /></template>
+      <section class="panel library-heading">
+        <div><p class="eyebrow">{{ recycleBin ? '可恢复记录' : '错题索引' }}</p><h2>{{ subject ? subject==='__unconfirmed__' ? '学科待核对' : subjectLabel(subject) : '请选择学科' }} · {{ recycleBin ? '回收站' : '按作业归类' }}</h2><p v-if="loaded" class="muted">{{ shownCount }} 道题，{{ groups.length }} 份作业</p></div>
+        <div class="heading-actions"><button type="button" :disabled="loading || busyId!==null || !!pendingAction" @click="refreshMistakes">刷新</button><button type="button" :disabled="!canDelete || busyId!==null || !!pendingAction" @click="toggleRecycleBin">{{ recycleBin ? '返回错题库' : '回收站' }}</button></div>
+      </section>
+      <div v-if="!recycleBin && shownCount" class="selection-toolbar">
+        <label class="select-all"><input type="checkbox" :checked="allSelected" :indeterminate="partiallySelected" :disabled="loading || busyId!==null" @change="toggleAll" />全选当前学科</label>
+        <span class="selection-count" aria-live="polite">已选 {{ selectionCount }} 题</span>
+        <button id="mistake-print-entry" type="button" class="primary" :disabled="!selectionCount || loading || loadingMaterials || busyId!==null" @click="openPrint">下载 / 打印</button>
+      </div>
+      <p v-if="loading" class="empty" role="status">{{ loadingMaterials ? '正在核对题面和标准答案权限…' : '正在读取本人错题…' }}</p>
+      <p v-else-if="!studentId" class="empty">{{ identityIssue(students) }}</p>
+      <p v-else-if="!subject" class="empty">目前没有已归类的错题学科。</p>
+      <p v-else-if="!groups.length && !error" class="empty">{{ recycleBin ? '这个学科的回收站为空。' : '这个学科暂无错题。' }}</p>
+      <section v-for="group in groups" :key="group.key" class="assignment-group" :aria-label="group.title">
+        <header class="group-header"><h2>{{ group.title }}</h2><span>{{ group.items.length }} 题</span></header>
+        <article v-for="item in group.items" :key="item.id" class="panel mistake-card" :class="{ selected: !recycleBin && selectedIds.has(item.id) }">
+          <div class="question-heading"><label v-if="!recycleBin" class="question-check"><input type="checkbox" :aria-label="`选择${group.title}第${item.question_no || '待核对'}题`" :checked="selectedIds.has(item.id)" :disabled="loading || busyId!==null" @change="toggleItem(item)" /></label><p class="question-index">{{ group.title }} · 第 {{ item.question_no || '待核对' }} 题</p></div>
+          <h3>{{ questionText(item) }}</h3>
+          <ol v-if="questionOptions(item).length" class="options"><li v-for="(option,index) in questionOptions(item)" :key="index">{{ option }}</li></ol>
+          <img v-if="questionImage(item)" class="clean-question-image" :src="questionImage(item)!" alt="题目配图" />
+          <div class="actions"><button :id="`mistake-${item.id}-own`" type="button" @click="showDetail(item,'own')">查看作答</button><button :id="`mistake-${item.id}-standard`" type="button" :disabled="!publicAnswer(item)" :title="answerHint(item)" @click="showDetail(item,'standard')">查看标准答案</button>
+            <button v-if="!recycleBin" type="button" class="delete-button" :disabled="!canDelete || busyId!==null || !!pendingAction" :title="canDelete ? '移入回收站，可恢复' : '可恢复删除暂不可用'" @click="askDelete(item)">删除错题</button>
+            <button v-else type="button" :disabled="busyId!==null || (!!pendingAction && pendingAction.id!==item.id)" @click="changeMistake(item,false)">{{ pendingAction?.id===item.id ? '用原操作重试恢复' : '恢复错题' }}</button>
+          </div>
+          <div v-if="!recycleBin && (confirmDeleteId===item.id || (pendingAction?.id===item.id && pendingAction.deleted))" class="delete-confirm" role="group" :aria-label="`删除第 ${item.question_no || '待核对'} 题`"><p>移入回收站后可以恢复，原作业与历史记录保留。</p><button type="button" :disabled="busyId!==null" @click="changeMistake(item,true)">{{ pendingAction?.id===item.id ? '用原操作重试' : '确认删除' }}</button><button type="button" :disabled="busyId!==null || !!pendingAction" @click="confirmDeleteId=null">取消</button></div>
+        </article>
+      </section>
+      <template #reminders><section class="reminder-card"><p class="eyebrow">所属作业</p><h2>{{ subject ? subject==='__unconfirmed__' ? '学科待核对' : subjectLabel(subject) : '选择学科' }}</h2><ul v-if="groups.length" class="group-links"><li v-for="group in groups" :key="group.key">{{ group.title }} · {{ group.items.length }} 题</li></ul><p v-else class="muted">选择学科后显示关联作业。</p><p class="muted">先全选，再取消不需要的题目，即可打印部分错题。</p></section></template>
     </StudentWorkbench>
-    <dialog ref="reviewDialog" class="review-dialog" aria-labelledby="review-heading">
-<header class="section-heading">
-<h2 id="review-heading">本次复习清单 · {{ reviewItems.length }} 题</h2>
-<button class="secondary" @click="reviewDialog?.close()">关闭清单</button>
-</header>
-<p class="muted">请回看原题，在纸上独立作答，再对照允许查看的反馈。</p>
-<ol>
-<li v-for="item in reviewItems" :key="item.id">
-<span>{{ subjectLabel(item.subject) }} · 第 {{ item.question_no || '待核对' }} 题</span>
-<p>{{ item.question?.question_text || '题面待老师核对' }}</p>
-<small>{{ item.assignment_title || '原作业' }}</small>
-</li>
-</ol>
-</dialog>
+    <dialog ref="detailDialog" class="detail-dialog" aria-labelledby="mistake-detail-title" @cancel.prevent="closeDetail">
+      <header class="dialog-heading"><div><p class="eyebrow">{{ detailItem?.assignment_title }} · 第 {{ detailItem?.question_no || '待核对' }} 题</p><h2 id="mistake-detail-title">{{ detailKind==='own' ? '本人作答' : '标准答案' }}</h2></div><button type="button" @click="closeDetail">返回错题</button></header>
+      <template v-if="detailKind==='standard'"><p v-if="detailAnswer" class="answer-text">{{ detailAnswer }}</p><p v-else class="muted">标准答案暂未公开或尚未提供。</p></template>
+      <template v-else><p v-if="detailOwnText" class="answer-text">{{ detailOwnText }}</p><p v-if="detailBusy" role="status">正在读取本人作答…</p><p v-if="detailError" class="notice error" role="alert">{{ detailError }}</p><img v-if="detailImage" class="evidence" :src="detailImage" alt="本人作业中的作答" /><div class="actions"><button type="button" :disabled="detailBusy" @click="showOwnImage('crop')">查看作答图片</button><button type="button" :disabled="detailBusy" @click="showOwnImage('original')">查看原始作业页</button></div></template>
+    </dialog>
+    <StudentMistakePrint v-if="printOpen && studentId" :student-id="studentId" :subject="subject" :selection="printSelection" @close="closePrint" />
   </section>
 </template>
-<style scoped>
-.mistake-workspace{container-type:inline-size;color:#263d32;max-width:1600px;min-width:0;margin:0 auto;padding:6px 0 34px}
-.page-header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:20px}
-.eyebrow{font-size:12px;color:#7c8e80;letter-spacing:.06em;margin:0 0 10px}
-.page-header h1{font-size:28px;margin:0}
-.header-controls{display:grid;gap:9px;min-width:160px}
-.header-controls>a{color:#456c54;text-decoration:none;font-size:12px;text-align:right}
-.identity-picker{display:grid;gap:7px;font-size:12px;color:#6b806e}
-.page-account-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}
-.page-account-actions .identity-picker{min-width:160px;flex:1}
-.muted{font-size:13px;line-height:1.8;color:#7a8e7e}
-.panel,.reminder-card{border:1px solid #e0e8df;border-radius:14px;background:#fff;padding:20px;margin-bottom:18px;min-width:0}
-.reminder-card{margin:0}
-.section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-.section-heading h2,.reminder-card h2{font-size:17px;margin:0}
-.list-count{font-size:12px;font-weight:400;color:#75887a;margin-left:7px}
-.section-subject{font-size:11px;font-weight:400;color:#75887a;margin-left:7px}
-.filter-panel{padding:16px 18px}
-.mistake-workspace button:focus-visible,.mistake-workspace a:focus-visible,.mistake-workspace summary:focus-visible,.mistake-workspace select:focus-visible,.mistake-workspace input:focus-visible,.mistake-workspace textarea:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}
-.mistake-workspace .mistake-tabs{display:flex;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e4ebe5}
-.mistake-workspace .mistake-tabs button{padding:8px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#708176;font-size:12px}
-.mistake-workspace .mistake-tabs button[aria-pressed=true]{color:#185d49;border-bottom-color:#185d49;font-weight:650}
-.mistake-tabs span{margin-left:4px;font-size:11px}
-.filter-tools{display:flex;align-items:start;justify-content:space-between;gap:10px;margin-top:11px}
-.advanced-filters{flex:1;min-width:0;font-size:12px;color:#637e69}
-.advanced-filters summary{cursor:pointer;line-height:2}
-.active-filters{font-size:11px;color:#185d49;background:#e7f3ea;border-radius:4px;padding:2px 5px;margin-left:7px}
-.filter-summary{font-size:11px;line-height:1.8;color:#637e69;margin:8px 0 0;overflow-wrap:anywhere}
-.filter-summary span{margin-right:8px}
-.filters{display:flex;gap:12px;margin-top:10px;flex-wrap:wrap}
-.filters label{display:grid;gap:8px;flex:1;font-size:12px;min-width:130px;color:#6b806e}
-.mistake-workspace select,.mistake-workspace input[type=date],.mistake-workspace textarea{font:inherit;font-size:13px;box-sizing:border-box;padding:10px;border:1px solid #d6e1d7;border-radius:8px;background:#fff;color:#385541;max-width:100%}
-.mistake-workspace button{font:inherit;font-size:13px;padding:10px 14px;background:#185d49;border:1px solid #185d49;border-radius:9px;color:#fff;cursor:pointer}
-.mistake-workspace .secondary{color:#40654d;background:#fff;border-color:#d2dfd5}
-.mistake-workspace .text-button{padding:5px;background:transparent;color:#5b7d64;border:0}
-.mistake-workspace button:disabled{opacity:.45;cursor:not-allowed}
-.card-top{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.subject-pill,.status-pill{font-size:11px;border-radius:6px;padding:5px 10px;background:#edf3ec;color:#5e7c62}
-.status-pill{background:#faf4e3;color:#8e7745}
-.source-label{font-size:12px;color:#849285;margin:12px 0 7px}
-.mistake-card h2{font-size:18px;line-height:1.7;margin:0 0 10px}
-.options{font-size:14px;line-height:1.8}
-.knowledge-chips{display:flex;flex-wrap:wrap;gap:7px}
-.knowledge-chips span{font-size:11px;padding:5px 9px;background:#f2f6ef;border-radius:5px;color:#6e836b}
-.own-answer{font-size:14px;line-height:1.8;padding:10px;background:#f6f8f3;border-radius:7px;margin:10px 0 5px}
-.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0}
-.correction-field{display:grid;gap:8px;font-size:13px;color:#5b765f;margin-top:14px}
-.correction-field textarea{width:100%;resize:vertical;line-height:1.8}
-.review-choice{display:flex;align-items:center;gap:9px;font-size:12px;color:#69816a;margin-top:20px}
-.review-choice input{accent-color:#185d49;width:16px;height:16px}
-.evidence{display:block;max-width:100%;max-height:500px;object-fit:contain;margin:15px 0}
-.history{padding-top:16px;margin-top:16px;border-top:1px solid #e2e9df}
-.history article{font-size:13px;padding:12px 0;border-bottom:1px solid #edf1e9;line-height:1.7}
-.history small{color:#849280}
-.count-line{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#6f846f;padding:12px 0;border-bottom:1px solid #e9eee6}
-.count-line strong{font-size:25px;font-weight:500;color:#365c3f}
-.review-button{width:100%;margin-top:10px}
-.small-note{font-size:11px;line-height:1.8;color:#8a9987;margin-bottom:0}
-.notice{font-size:13px;line-height:1.8;padding:14px;border-radius:8px;margin:0 0 18px}
-.error{background:#fff0ec;color:#a24a3b}
-.success{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#eaf3e8;color:#497543}
-.empty{font-size:13px;text-align:center;color:#84947e;padding:40px 10px}
-.review-dialog{width:min(680px,94vw);max-height:90dvh;box-sizing:border-box;border:1px solid #d0dfce;border-radius:15px;padding:24px;color:#36553c}
-.review-dialog::backdrop{background:rgb(22 40 25 / 60%)}
-.review-dialog li{border-top:1px solid #e3eadf;padding:16px 5px;font-size:14px;line-height:1.8}
-.review-dialog li>span,.review-dialog li>small{font-size:12px;color:#83917c}
-@container(max-width:650px){.page-header{align-items:start;flex-direction:column;gap:12px}
-.page-header h1{font-size:26px}
-.header-controls{width:100%}
-.panel{padding:17px}
-.filters{flex-direction:column}
-.card-top{align-items:start}
-.actions button{flex:1}
-}
 
+<style scoped>
+.detail-dialog{margin:auto}
+.mistake-workspace{color:#294a39;min-width:0}.page-header{margin-bottom:20px}.page-header h1{font-size:28px;margin:0}.page-header>.muted{margin-bottom:0}.eyebrow{color:#637e6c;font-size:11px;letter-spacing:.06em;margin:0 0 8px}.muted{color:#66786e;font-size:13px;line-height:1.7}.panel,.reminder-card{background:#fff;border:1px solid #dce8dd;border-radius:14px;padding:20px;margin-bottom:16px;min-width:0}.library-heading,.dialog-heading{display:flex;justify-content:space-between;gap:16px;align-items:center}.library-heading h2{font-size:20px;margin:0}.heading-actions,.actions{display:flex;gap:8px;flex-wrap:wrap}.actions{margin-top:20px}button{border:1px solid #c5d8ca;border-radius:8px;background:#fff;color:#185d49;padding:9px 13px;font:inherit;font-size:12px;cursor:pointer;min-height:38px}button.primary{background:#185d49;color:#fff;border-color:#185d49}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #9ec7b6;outline-offset:2px}.notice{border-radius:9px;padding:12px;font-size:12px;line-height:1.7}.notice.error{background:#fff1f0;color:#922}.notice.success{background:#e8f5e9;color:#185d49}.empty{padding:24px;color:#617769;background:#fff;border-radius:12px}.selection-toolbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;background:#edf5ef;border:1px solid #d4e4d8;border-radius:10px;margin:16px 0}.select-all{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer}.selection-count{font-size:12px;color:#66786e;margin-right:auto}.selection-toolbar input,.question-check input{width:18px;height:18px;accent-color:#185d49}.assignment-group{margin:24px 0}.group-header{display:flex;align-items:center;gap:12px;padding:0 4px 10px}.group-header h2{font-size:17px;margin:0}.group-header span{font-size:12px;color:#7a897e}.mistake-card.selected{border-color:#84b698;background:#fcfffc;box-shadow:0 0 0 1px #84b698}.question-heading{display:flex;align-items:center;gap:10px}.question-check{display:flex;cursor:pointer}.question-index{color:#6b8273;font-size:12px;margin:0;line-height:1.7}.mistake-card h3{font-size:17px;line-height:1.8;white-space:pre-wrap;margin:16px 0 0;font-weight:500;overflow-wrap:anywhere}.options{font-size:14px;line-height:1.8;padding-left:22px}.clean-question-image{display:block;max-width:100%;max-height:320px;object-fit:contain;margin-top:16px}.delete-button{color:#a23737;border-color:#e3c1c1;margin-left:auto}.delete-confirm{border:1px solid #e2c5bb;background:#fff9f5;border-radius:8px;padding:12px;margin-top:12px;font-size:12px;line-height:1.7}.delete-confirm button{margin-right:8px}.reminder-card h2{font-size:16px;margin:0}.group-links{padding-left:18px;font-size:12px;line-height:1.9}.detail-dialog{width:min(740px,calc(100vw - 28px));max-height:90dvh;overflow:auto;box-sizing:border-box;border:1px solid #bfd6c8;border-radius:16px;padding:24px;color:#294a39;background:#fff}.detail-dialog::backdrop{background:#19352e70}.dialog-heading h2{font-size:21px;margin:0}.answer-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:16px;line-height:1.9;padding:18px;background:#f3f8f3;border-radius:9px}.evidence{display:block;max-width:100%;max-height:60dvh;object-fit:contain;margin:18px auto}@media(max-width:600px){.library-heading,.dialog-heading{align-items:flex-start;flex-direction:column}.panel,.reminder-card{padding:16px}.selection-toolbar{gap:10px}.delete-button{margin-left:0}.detail-dialog{padding:18px}}
+@media(pointer:coarse),(max-width:700px){button{min-height:44px;font-size:14px}.select-all,.question-check{min-height:44px}.question-check{min-width:44px;justify-content:center}.question-heading{gap:4px}.select-all{padding-right:8px}.heading-actions{width:100%}.selection-toolbar{gap:8px 12px}.group-header{align-items:flex-start}.group-header h2{overflow-wrap:anywhere}.group-header span{flex-shrink:0}}
+@media(max-width:600px){.page-header h1{font-size:25px}.detail-dialog{width:100%;max-width:none;max-height:100dvh;height:100dvh;margin:0;border-radius:0;border:0;padding:18px;padding-top:max(18px,env(safe-area-inset-top));padding-bottom:max(24px,env(safe-area-inset-bottom))}.dialog-heading{flex-direction:row;position:sticky;top:calc(-1 * max(18px,env(safe-area-inset-top)));padding:12px 0;background:#fff;z-index:1}.dialog-heading>div{min-width:0}.dialog-heading>button{flex-shrink:0}.actions button{flex:1 1 auto}.selection-toolbar>.primary{min-width:120px}.evidence{max-height:none;width:100%;height:auto}}
 </style>
