@@ -102,6 +102,12 @@ export const studentApi = {
     const query = studentId ? `?student_id=${encodeURIComponent(studentId)}` : ''
     return client.get<ApiResponse<StudentAssignment[]>>(`/assignments/mine${query}`)
   },
+  getPublishedPaper(assignmentId: number, studentId: number) {
+    return client.get<Blob>(`/teacher-v2/assignments/${assignmentId}/source`, {
+      params: { student_id: studentId },
+      responseType: 'blob',
+    })
+  },
   createFamilyInvite(studentId: number) {
     return client.post<ApiResponse<{ code: string; expires_at?: string }>>(
       `/students/${studentId}/family-contract`, {},
